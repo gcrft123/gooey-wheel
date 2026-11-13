@@ -1,15 +1,15 @@
 #!/bin/zsh
-# Builds a release binary and wraps it in build/Actions Wheel.app.
+# Builds a release binary and wraps it in build/Gooey Wheel.app.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 swift build -c release
-bin="$(swift build -c release --show-bin-path)/ActionsWheel"
+bin="$(swift build -c release --show-bin-path)/GooeyWheel"
 
-app="build/Actions Wheel.app"
+app="build/Gooey Wheel.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-cp "$bin" "$app/Contents/MacOS/ActionsWheel"
+cp "$bin" "$app/Contents/MacOS/GooeyWheel"
 
 # App icon, rendered by the app's own goo shader.
 iconset="$(mktemp -d)/AppIcon.iconset"
@@ -26,10 +26,10 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>Actions Wheel</string>
-  <key>CFBundleDisplayName</key><string>Actions Wheel</string>
-  <key>CFBundleIdentifier</key><string>dev.actionswheel.prototype</string>
-  <key>CFBundleExecutable</key><string>ActionsWheel</string>
+  <key>CFBundleName</key><string>Gooey Wheel</string>
+  <key>CFBundleDisplayName</key><string>Gooey Wheel</string>
+  <key>CFBundleIdentifier</key><string>dev.gooey.wheel</string>
+  <key>CFBundleExecutable</key><string>GooeyWheel</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>

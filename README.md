@@ -1,6 +1,6 @@
 <img src="assets/icon.png" width="64" height="64" alt="">
 
-# Actions Wheel
+# Gooey Wheel
 
 A native macOS prototype of a radial actions menu, a redesign of the Logitech Actions Ring with the liquid look of [Gooey](https://libraries.dev/gooey). The actions are placeholders. Selecting one plays the animation and closes the wheel.
 
@@ -8,7 +8,7 @@ A native macOS prototype of a radial actions menu, a redesign of the Logitech Ac
 
 ```sh
 ./scripts/build-app.sh
-open "build/Actions Wheel.app"
+open "build/Gooey Wheel.app"
 ```
 
 Requires macOS 14 or later and the Swift toolchain from Xcode. The app has a menu bar item and no Dock icon.
@@ -32,7 +32,7 @@ While a folder is open, the ring it came from shrinks and dims in place, and the
 
 The app reads the MX Master 4's thumb panel from the mouse itself, over Logitech's HID++ protocol. It doesn't use Logi Options+ and works whether or not Options+ is running. The mouse has to be connected by Bluetooth; one behind a Bolt receiver isn't supported yet.
 
-macOS requires Input Monitoring permission to open the mouse. Allow Actions Wheel under System Settings → Privacy & Security → Input Monitoring, or choose the menu bar item's "Allow Input Monitoring for the Thumb Button…". The button starts working within a couple of seconds of allowing it. The menu bar item shows the mouse's name once it is connected.
+macOS requires Input Monitoring permission to open the mouse. Allow Gooey Wheel under System Settings → Privacy & Security → Input Monitoring, or choose the menu bar item's "Allow Input Monitoring for the Thumb Button…". The button starts working within a couple of seconds of allowing it. The menu bar item shows the mouse's name once it is connected.
 
 If Options+ is running and has the thumb panel assigned to its own Actions Ring in an app profile, both will open in that app. Set the panel to "Do nothing" in that profile.
 
@@ -50,7 +50,7 @@ If Options+ is running and has the thumb panel assigned to its own Actions Ring 
 `--demo` runs a scripted cursor on an opaque backdrop, which is useful for screen recordings and for tuning in slow motion.
 
 ```sh
-.build/out/Products/Release/ActionsWheel --demo --stage color --timescale 0.25
+.build/out/Products/Release/GooeyWheel --demo --stage color --timescale 0.25
 ```
 
 `--stage` takes `dark`, `light`, or `color`. `--appearance light|dark` overrides the system appearance. `--parent shrink|hide` picks what the parent ring does in a folder. `--demo-exit` quits after one pass.
