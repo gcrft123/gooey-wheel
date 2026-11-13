@@ -2,9 +2,9 @@
 import PackageDescription
 
 let package = Package(
-    name: "ActionsWheel",
+    name: "GooeyWheel",
     platforms: [.macOS(.v14)],
     targets: [
-        .executableTarget(name: "ActionsWheel", path: "Sources/ActionsWheel")
+        .executableTarget(name: "GooeyWheel", path: "Sources/GooeyWheel")
     ]
 )
