@@ -1,0 +1,50 @@
+#!/bin/zsh
+# Builds a release binary and wraps it in build/Actions Wheel.app.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+swift build -c release
+bin="$(swift build -c release --show-bin-path)/ActionsWheel"
+
+app="build/Actions Wheel.app"
+rm -rf "$app"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+cp "$bin" "$app/Contents/MacOS/ActionsWheel"
+
+# App icon, rendered by the app's own goo shader.
+iconset="$(mktemp -d)/AppIcon.iconset"
+mkdir -p "$iconset"
+"$bin" --render-icon assets/icon.png
+for size in 16 32 128 256 512; do
+  sips -z $size $size assets/icon.png --out "$iconset/icon_${size}x${size}.png" >/dev/null
+  sips -z $((size * 2)) $((size * 2)) assets/icon.png --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
+
+cat > "$app/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>Actions Wheel</string>
+  <key>CFBundleDisplayName</key><string>Actions Wheel</string>
+  <key>CFBundleIdentifier</key><string>dev.actionswheel.prototype</string>
+  <key>CFBundleExecutable</key><string>ActionsWheel</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>LSUIElement</key><true/>
+  <key>NSHighResolutionCapable</key><true/>
+</dict>
+</plist>
+PLIST
+
+# Sign with a development certificate when there is one. macOS ties the Input Monitoring grant
+# (needed to read the mouse) to the signature, and an ad-hoc signature changes on every build.
+identity="$(security find-identity -v -p codesigning 2>/dev/null | awk '/Apple Development/ {print $2; exit}')"
+if [[ -z "$identity" ]] || ! perl -e 'alarm 30; exec @ARGV' codesign --force --sign "$identity" "$app" >/dev/null 2>&1; then
+  codesign --force --sign - "$app" >/dev/null 2>&1
+fi
+echo "$app"
