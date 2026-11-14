@@ -6,7 +6,8 @@ import CoreBluetooth
 /// every 4 seconds, and for one to two seconds after each of those the button's reports arrive
 /// on that characteristic and not as HID reports. Listening there as well keeps them.
 ///
-/// This only subscribes. It never writes to the characteristic.
+/// It writes only haptic taps there, while Options+ runs, so that the mouse keeps sending its
+/// notifications to Options+ (see `MouseHaptics`). Like Options+, it writes without response.
 final class VendorChannel: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     static let service = CBUUID(string: "00010000-0000-1000-8000-011F2000046D")
     static let characteristic = CBUUID(string: "00010001-0000-1000-8000-011F2000046D")
@@ -15,6 +16,7 @@ final class VendorChannel: NSObject, CBCentralManagerDelegate, CBPeripheralDeleg
     var onMessage: ((String, [UInt8]) -> Void)?
     private var central: CBCentralManager?
     private var peripherals: [UUID: CBPeripheral] = [:]
+    private var characteristics: [UUID: CBCharacteristic] = [:]
 
     func start() {
         guard central == nil else {
@@ -40,6 +42,7 @@ final class VendorChannel: NSObject, CBCentralManagerDelegate, CBPeripheralDeleg
             refresh()
         } else {
             peripherals.removeAll()
+            characteristics.removeAll()
         }
     }
 
@@ -49,10 +52,12 @@ final class VendorChannel: NSObject, CBCentralManagerDelegate, CBPeripheralDeleg
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         peripherals[peripheral.identifier] = nil
+        characteristics[peripheral.identifier] = nil
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         peripherals[peripheral.identifier] = nil
+        characteristics[peripheral.identifier] = nil
     }
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
@@ -63,12 +68,26 @@ final class VendorChannel: NSObject, CBCentralManagerDelegate, CBPeripheralDeleg
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         for characteristic in service.characteristics ?? [] where characteristic.uuid == Self.characteristic {
+            characteristics[peripheral.identifier] = characteristic
             peripheral.setNotifyValue(true, for: characteristic)
         }
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
         TriggerDebug.log("bluetooth channel \(peripheral.name ?? "?"): \(characteristic.isNotifying ? "listening" : "not listening")\(error.map { " (\($0.localizedDescription))" } ?? "")")
+    }
+
+    /// Writes a HID++ long report, less its report ID and device index, to the device named
+    /// `name`. Returns false when there is no such device, its characteristic doesn't take
+    /// writes without response, or Bluetooth isn't ready for one.
+    func write(_ report: [UInt8], to name: String) -> Bool {
+        guard report.count == 20,
+              let peripheral = peripherals.values.first(where: { $0.name == name && $0.state == .connected }),
+              let characteristic = characteristics[peripheral.identifier],
+              characteristic.properties.contains(.writeWithoutResponse),
+              peripheral.canSendWriteWithoutResponse else { return false }
+        peripheral.writeValue(Data(report[2...]), for: characteristic, type: .withoutResponse)
+        return true
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {

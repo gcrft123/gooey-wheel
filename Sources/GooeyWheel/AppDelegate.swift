@@ -15,6 +15,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var thumbItem: NSMenuItem?
     /// Shown while the app lacks Accessibility, which shortcuts, typing, and window actions need.
     private var accessibilityItem: NSMenuItem?
+    /// The haptics switch and the separator after it, shown only for a mouse with a haptic motor.
+    private var hapticsItems: [NSMenuItem] = []
     private let options: LaunchOptions
 
     init(options: LaunchOptions) {
@@ -177,6 +179,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(accessibility)
         accessibilityItem = accessibility
         menu.addItem(.separator())
+        let haptics = NSMenuItem(title: "Mouse Haptic Feedback", action: #selector(toggleHaptics), keyEquivalent: "")
+        haptics.target = self
+        let hapticsSeparator = NSMenuItem.separator()
+        menu.addItem(haptics)
+        menu.addItem(hapticsSeparator)
+        hapticsItems = [haptics, hapticsSeparator]
         let heading = NSMenuItem(title: "Parent Ring in Folders", action: nil, keyEquivalent: "")
         heading.isEnabled = false
         menu.addItem(heading)
@@ -205,6 +213,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         UserDefaults.standard.set(raw, forKey: Self.parentStyleKey)
     }
 
+    @objc private func toggleHaptics() {
+        MouseHaptics.enabled.toggle()
+    }
+
     @objc private func openAccessibility() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         if !AXIsProcessTrustedWithOptions(options),
@@ -215,6 +227,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         accessibilityItem?.isHidden = AXIsProcessTrusted()
+        for item in hapticsItems { item.isHidden = !MouseHaptics.supported }
+        hapticsItems.first?.state = MouseHaptics.enabled ? .on : .off
         for item in menu.items {
             guard let raw = item.representedObject as? String else { continue }
             item.state = raw == controller?.parentStyle.rawValue ? .on : .off

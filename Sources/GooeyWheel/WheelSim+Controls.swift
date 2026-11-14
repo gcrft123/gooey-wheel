@@ -244,7 +244,9 @@ extension WheelSim {
         state.symbol = controls.liveSymbol(item) ?? state.symbol
         liveStates[item.id] = state
         let detent = max(controls.detent(item), 0.001)
-        if Int((before / detent).rounded(.down)) != Int((next / detent).rounded(.down)) || next == 0 || next == 1 {
+        if next == 0 || next == 1 {
+            onLimit?()
+        } else if Int((before / detent).rounded(.down)) != Int((next / detent).rounded(.down)) {
             onDetent?()
         }
         for b in bubbles where b.entry.item?.id == item.id {

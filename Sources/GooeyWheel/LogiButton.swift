@@ -93,6 +93,11 @@ final class LogiButton {
         for link in links where link.ready { link.divert() }
     }
 
+    /// Sends a HID++ report to `link`'s device over Logitech's Bluetooth characteristic.
+    fileprivate func writeVendor(_ report: [UInt8], for link: LogiLink) -> Bool {
+        vendor.write(report, to: link.name)
+    }
+
     /// Hands the button back to the mouse if this app was the one that took it.
     func stop() {
         for link in links { link.restore() }
@@ -365,6 +370,14 @@ final class LogiLink {
             guard let self, let index else { return }
             self.enqueue(Request(feature: index, function: function, params: params, awaitsReply: false) { _ in })
         }
+    }
+
+    /// Sends a request over Logitech's Bluetooth characteristic instead, where Logi Options+ talks
+    /// to the mouse, without waiting for a reply. The mouse then keeps sending its notifications
+    /// there. Only for a feature already looked up. Returns whether it was sent.
+    func postOverBluetooth(_ feature: UInt16, _ function: UInt8, _ params: [UInt8]) -> Bool {
+        guard let index = features[feature], index != 0 else { return false }
+        return owner.writeVendor(Self.frame(feature: index, function: function, params: params), for: self)
     }
 
     /// Whether a request is waiting for a reply or for its turn.

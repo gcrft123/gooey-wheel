@@ -110,13 +110,19 @@ The app reads the MX Master 4's thumb panel from the mouse itself, over Logitech
 
 macOS requires Input Monitoring permission to open the mouse. Allow Gooey Wheel under System Settings → Privacy & Security → Input Monitoring, or choose the menu bar item's "Allow Input Monitoring for the Thumb Button…". The button starts working within a couple of seconds of allowing it. The menu bar item shows the mouse's name once it is connected.
 
-The mouse sends its button messages over two channels: HID reports, which the app opens, and a Bluetooth characteristic of Logitech's own, which Options+ uses. It sends them only to whichever channel last sent it a request. Options+ sends one every 4 seconds, so while it runs, the thumb panel's presses arrive on its channel for a second or two after each. The app listens on that channel too, which needs Bluetooth permission; macOS asks for it the first time the app opens. It only listens there and never writes to it.
+The mouse sends its button messages over two channels: HID reports, which the app opens, and a Bluetooth characteristic of Logitech's own, which Options+ uses. It sends them only to whichever channel last sent it a request. Options+ sends one every 4 seconds, so while it runs, the thumb panel's presses arrive on its channel for a second or two after each. The app listens on that channel too, which needs Bluetooth permission; macOS asks for it the first time the app opens. The only thing it writes there is haptic taps, while Options+ runs (see below).
 
 After a pause of a second or more, the mouse sometimes never reports the release of the press before it. A press reported while the button still reads as down, after the mouse has been quiet for a while, counts as that missing release followed by a new press.
 
 If Options+ is running and has the thumb panel assigned to its own Actions Ring in an app profile, both will open in that app. Set the panel to "Do nothing" in that profile.
 
 `defaults write dev.gooey.wheel TriggerDebug -bool YES` turns on a diagnostic log at `~/Library/Logs/Gooey Wheel/trigger.log`. It records every message from the mouse on both channels, each press and what it did to the wheel, clicks, app switches, and main-thread stalls. `defaults delete dev.gooey.wheel TriggerDebug` turns it off.
+
+## Haptic feedback
+
+A mouse with a haptic motor taps when the pointer moves onto a bubble, a folder, picker, or slider opens, a ring closes back to its parent, a slider passes a notch or reaches its end, an item is chosen, or something can't be done. Configuration mode taps for picking up, dropping, adding, and removing bubbles. Any Logitech mouse with HID++ feature `0x19B0` qualifies; in November 2026 that's the MX Master 4 and its Special and Developer Editions. The G Pro X2 Superstrike's haptic clicks use a different feature and can't play taps. Each mouse reports which waveforms it has, and each tap uses the closest one it has.
+
+Taps are on by default. The menu bar item's "Mouse Haptic Feedback" turns them off and only shows while such a mouse is connected. The mouse's own haptics switch, which the Mouse Haptics action flips, has to be on too. Each tap is a HID++ request, and the mouse sends its notifications, scrolling included, to whichever channel sent the last request. So while Logi Options+'s background agent runs (it keeps running after Options+ is quit), taps go over Options+'s own Bluetooth channel, written without response the way Options+ writes, and Options+ keeps the scroll wheel. Without Bluetooth permission there are then no taps.
 
 ## How it's built
 

@@ -132,6 +132,7 @@ final class WheelController: NSObject {
         }
         sim.onChoose = { [weak self] choice, item in
             NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+            self?.tapMouse(.select)
             guard let self, self.demo == nil else { return }
             self.toastPoint = self.screenPoint(self.sim.hubPosition)
             self.runner.choose(choice, of: item)
@@ -140,6 +141,12 @@ final class WheelController: NSObject {
             NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
             self?.tapMouse(.step)
         }
+        sim.onLimit = { [weak self] in
+            NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+            self?.tapMouse(.limit)
+        }
+        sim.onEnter = { [weak self] in self?.tapMouse(.open) }
+        sim.onBack = { [weak self] in self?.tapMouse(.back) }
         // While a request of this app's has the mouse sending its wheel here instead of to
         // Logi Options+, the wheel's turns arrive from the mouse itself.
         MouseWheelEvents.onWheel = { [weak self] vertical, horizontal in
@@ -147,8 +154,9 @@ final class WheelController: NSObject {
             self.updateCursor()
             self.sim.scroll(up: vertical, right: horizontal, precise: false)
         }
-        sim.onRefuse = {
+        sim.onRefuse = { [weak self] in
             NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+            self?.tapMouse(.refuse)
         }
         sim.controls = runner
         ActionFeedback.show = { [weak self] message in self?.showToast(message) }
@@ -403,6 +411,7 @@ final class WheelController: NSObject {
         switch feedback {
         case .entered:
             haptics.perform(.levelChange, performanceTime: .now)
+            tapMouse(.select)
             guard demo == nil else { return }
             // Stays key until the wheel closes. Handing key back while the panel is still up
             // would mean ordering it out and in again.
@@ -416,10 +425,13 @@ final class WheelController: NSObject {
             }
         case .exited, .changed, .dropped:
             haptics.perform(.levelChange, performanceTime: .now)
+            tapMouse(.select)
         case .lifted:
             haptics.perform(.alignment, performanceTime: .now)
+            tapMouse(.open)
         case .refused:
             haptics.perform(.generic, performanceTime: .now)
+            tapMouse(.refuse)
         }
     }
 
@@ -655,11 +667,11 @@ final class WheelController: NSObject {
     private var optionsPlusRunning = false
     private var mouseReadAt = Date.distantPast
 
-    /// A tap from the mouse's own haptic motor. Only without Options+: with it, every tap would
-    /// stop scrolling for a few seconds.
+    /// A tap from the mouse's own haptic motor. With Options+ running it goes over Options+'s
+    /// Bluetooth channel, so Options+ keeps the scroll wheel.
     private func tapMouse(_ kind: MouseHaptics.Kind) {
-        guard demo == nil, !optionsPlusRunning else { return }
-        MouseHaptics.play(kind)
+        guard demo == nil else { return }
+        MouseHaptics.play(kind, over: optionsPlusRunning ? .bluetooth : .hid)
     }
 
     /// Reads the mouse's settings and battery for the bubbles that show them. With Options+

@@ -55,6 +55,8 @@ final class MouseState {
     private(set) var haptics: Haptics? { didSet { if haptics != oldValue { changed() } } }
     private(set) var battery: Battery? { didSet { if battery != oldValue { changed() } } }
     private(set) var hosts: Hosts? { didSet { if hosts != oldValue { changed() } } }
+    /// The waveforms the haptic motor plays, a bit per waveform number. Read once per connection.
+    private(set) var hapticWaveforms: UInt32?
 
     private var mouse: ObjectIdentifier?
     private var supportedDPI: [Int]?
@@ -89,6 +91,7 @@ final class MouseState {
         dpi = nil
         smartShift = nil
         haptics = nil
+        hapticWaveforms = nil
         battery = nil
         hosts = nil
         if current != nil {
@@ -123,6 +126,11 @@ final class MouseState {
             }
         }
         if link.has(HIDPPFeature.haptic) {
+            if hapticWaveforms == nil {
+                read(HIDPPFeature.haptic, 0) { [weak self] reply in
+                    if let reply { self?.hapticWaveforms = Self.parseHapticWaveforms(reply) }
+                }
+            }
             read(HIDPPFeature.haptic, 1) { [weak self] reply in
                 if let reply { self?.haptics = Self.parseHaptics(reply) }
             }
@@ -369,6 +377,14 @@ final class MouseState {
     static func parseHaptics(_ reply: [UInt8]) -> Haptics? {
         guard reply.count >= 2 else { return nil }
         return Haptics(enabled: reply[0] & 0x01 != 0, level: reply[1])
+    }
+
+    /// 0x19B0 function 0: capabilities, with the waveforms the motor plays as a big-endian bit
+    /// mask in bytes 4 to 7.
+    static func parseHapticWaveforms(_ reply: [UInt8]) -> UInt32? {
+        guard reply.count >= 8 else { return nil }
+        let mask = reply[4..<8].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
+        return mask == 0 ? nil : mask
     }
 
     /// 0x1004 function 1 and event 0: percentage, level bits, charging status, external power.
