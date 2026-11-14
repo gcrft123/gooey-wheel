@@ -149,6 +149,7 @@ enum SelfTest {
             + AutomationActions.tests
             + MouseActions.tests
             + MouseButtonTap.tests
+            + KeyCapture.tests
     }
 
     /// Runs every check whose name matches `pattern`, a regular expression. Returns the exit code.
