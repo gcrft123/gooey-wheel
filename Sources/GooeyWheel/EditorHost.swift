@@ -12,6 +12,8 @@ final class EditorHost {
     private let mask = PanelMask()
     private var focused = false
     private var closing = false
+    /// Hands the keyboard to a dialog a panel shows, and takes it back after.
+    var runModal: (() -> Void) -> Void = { $0() }
 
     init() {
         view.wantsLayer = true
@@ -21,7 +23,7 @@ final class EditorHost {
         remove()
         EditorTheme.reducedMotion = sim.tuning.jiggle == 0
         guard let item = sim.store.item(request.itemID), let rect = sim.editorRect else { return }
-        let context = EditorContext(item: item, store: sim.store, style: style, shape: PanelShape.shape(for: request.option))
+        let context = EditorContext(item: item, store: sim.store, style: style, shape: PanelShape.shape(for: request.option), runModal: runModal)
         let content: EditorContent
         switch request.option {
         case .rename: content = RenameEditor(context: context)

@@ -7,6 +7,8 @@ struct EditorContext {
     let store: WheelStore
     let style: GooStyle
     let shape: PanelShape
+    /// Shows a dialog, such as an Open panel, run inside the closure, over the wheel.
+    let runModal: (() -> Void) -> Void
 
     var size: CGSize { CGSize(width: 2 * shape.half.x, height: 2 * shape.half.y) }
 }

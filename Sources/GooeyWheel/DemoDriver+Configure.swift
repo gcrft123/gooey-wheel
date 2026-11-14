@@ -216,6 +216,7 @@ extension DemoDriver {
         b.save(mark: "color")
 
         // Icon: search, glide over a few symbols, pick one, step down a row with the arrow key.
+        // Then switch to the apps and pick one's icon.
         b.open(.icon, mark: "icon")
         b.type("star", mark: "icon-search")
         b.panelMove("cell:2")
@@ -231,6 +232,18 @@ extension DemoDriver {
         b.mark("icon-arrow-glide", after: 0.08)
         b.wait(0.5)
         b.mark("icon-dirty")
+        b.panelMove("source")
+        b.wait(0.3)
+        b.mark("icon-source-hover")
+        b.fire(.windowClick)
+        b.mark("icon-source-switching", after: 0.08)
+        b.wait(0.6)
+        b.mark("icon-apps")
+        b.fire(.key("a", code: 0, modifiers: .command))
+        b.type("cal", mark: "icon-app-search")
+        b.panelClick("com.apple.iCal")
+        b.wait(0.5)
+        b.mark("icon-app-picked")
         b.save(mark: "icon")
 
         // Action, on the same item: each kind of setting, worked through the window where

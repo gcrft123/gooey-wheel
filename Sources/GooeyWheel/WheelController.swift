@@ -173,6 +173,10 @@ final class WheelController: NSObject {
             self.sim.editorSaved()
         }
         sim.onEditorClose = { [weak self] in self?.editors.close() }
+        editors.runModal = { [weak self] body in
+            guard let self else { return body() }
+            self.runModal(body)
+        }
         sim.panelPoint = { [weak self] name in self?.editors.demoPoint(name) }
 
     }
@@ -268,14 +272,30 @@ final class WheelController: NSObject {
 
         panel.orderFrontRegardless()
         // A demo is driven by its script and leaves Esc to whoever is using the Mac.
-        if demo == nil {
-            HotKeyCenter.shared.register(id: Self.escapeHotKey, keyCode: kVK_Escape, modifiers: 0) { [weak self] pressed in
-                guard pressed, let self else { return }
-                TriggerDebug.event("esc \(self.debugState)")
-                self.sim.escape()
-            }
-        }
+        if demo == nil { registerEscape() }
         startLink()
+    }
+
+    private func registerEscape() {
+        HotKeyCenter.shared.register(id: Self.escapeHotKey, keyCode: kVK_Escape, modifiers: 0) { [weak self] pressed in
+            guard pressed, let self else { return }
+            TriggerDebug.event("esc \(self.debugState)")
+            self.sim.escape()
+        }
+    }
+
+    /// Runs a dialog over the wheel, such as the Open panel for a picture. The dialog has the
+    /// keyboard, Esc included, until it closes. Then the app that was in front is brought back.
+    private func runModal(_ body: () -> Void) {
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        HotKeyCenter.shared.unregister(id: Self.escapeHotKey)
+        // A dialog takes typing only for the active app.
+        NSApp.activate()
+        body()
+        if let frontmost, frontmost != NSRunningApplication.current { frontmost.activate() }
+        guard isOpen else { return }
+        registerEscape()
+        panel.makeKey()
     }
 
     /// Opens configuration, on the wheel already open or on one opened at `point`.
