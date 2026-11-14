@@ -67,7 +67,7 @@ final class MouseLink {
     func post(_ feature: UInt16, _ function: UInt8, _ params: [UInt8]) {
         guard let mouse, let index = mouse.features[feature], index != 0 else { return }
         if let interceptPosts {
-            interceptPosts(LogiLink.frame(feature: index, function: function, params: params))
+            interceptPosts(LogiLink.frame(index: mouse.index, feature: index, function: function, params: params))
             return
         }
         mouse.post(feature, function, params)
