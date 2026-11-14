@@ -37,6 +37,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSBluetoothAlwaysUsageDescription</key><string>Gooey Wheel reads the thumb button over Bluetooth while Logi Options+ is running.</string>
 </dict>
 </plist>
 PLIST

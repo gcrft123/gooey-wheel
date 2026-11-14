@@ -22,12 +22,16 @@ struct GooStyle {
     var iconOnAccent: SIMD3<Float>
     var glyphAlpha: Float
 
+    /// The glyph color that reads on a filled bubble. Light fills such as yellow need a dark glyph.
+    static func glyphColor(on fill: SIMD3<Float>) -> SIMD3<Float> {
+        let luminance = 0.2126 * fill.x + 0.7152 * fill.y + 0.0722 * fill.z
+        return luminance > 0.55 ? SIMD3(0.09, 0.09, 0.1) : SIMD3(1, 1, 1)
+    }
+
     static func resolve(dark: Bool, accent: NSColor) -> GooStyle {
         let a = accent.usingColorSpace(.sRGB) ?? NSColor(srgbRed: 0.04, green: 0.52, blue: 1, alpha: 1)
         let accentRGB = SIMD3<Float>(Float(a.redComponent), Float(a.greenComponent), Float(a.blueComponent))
-        // Light accents such as yellow need a dark glyph.
-        let luminance = 0.2126 * accentRGB.x + 0.7152 * accentRGB.y + 0.0722 * accentRGB.z
-        let onAccent: SIMD3<Float> = luminance > 0.55 ? SIMD3(0.09, 0.09, 0.1) : SIMD3(1, 1, 1)
+        let onAccent = glyphColor(on: accentRGB)
         if dark {
             return GooStyle(
                 neutral: SIMD3(0.085, 0.085, 0.095), accent: accentRGB,
@@ -49,7 +53,7 @@ struct GooStyle {
 /// minimum, which is what makes them neck, bridge, and pinch off like liquid. Color is blended
 /// with the same weights, so tint flows through a bridge.
 final class GooRenderer {
-    static let maxBlobs = 56
+    static let maxBlobs = 96
 
     let device: MTLDevice
     private let queue: MTLCommandQueue
@@ -72,7 +76,9 @@ final class GooRenderer {
     private struct GPUBlob {
         var geom: SIMD4<Float>      // center.xy, half.xy
         var color: SIMD4<Float>     // rgb, corner radius
-        var extra: SIMD4<Float>     // opacity, unused
+        var extra: SIMD4<Float>     // opacity, firmness, bottom corner radius
+        var cutLeft: SIMD4<Float>   // bottom-left cutout: center.xy, radius
+        var cutRight: SIMD4<Float>  // bottom-right cutout: center.xy, radius
     }
 
     init?() {
@@ -121,11 +127,14 @@ final class GooRenderer {
         for i in 0..<count {
             let b = blobs[i]
             let t = Float(b.tint)
-            let rgb = style.neutral + (style.accent - style.neutral) * t
+            let base = style.neutral + (style.icon - style.neutral) * Float(b.ink)
+            let rgb = base + ((b.color ?? style.accent) - base) * t
             let gpu = GPUBlob(
                 geom: SIMD4(Float(b.center.x), Float(b.center.y), Float(b.half.x), Float(b.half.y)),
                 color: SIMD4(rgb, Float(b.corner)),
-                extra: SIMD4(Float(b.alpha), 0, 0, 0)
+                extra: SIMD4(Float(b.alpha), Float(b.firm), Float(b.cornerBottom ?? b.corner), 0),
+                cutLeft: b.cutoutLeft.map { SIMD4(Float($0.center.x), Float($0.center.y), Float($0.radius), 0) } ?? SIMD4(repeating: 0),
+                cutRight: b.cutoutRight.map { SIMD4(Float($0.center.x), Float($0.center.y), Float($0.radius), 0) } ?? SIMD4(repeating: 0)
             )
             buffer.storeBytes(of: gpu, toByteOffset: headerSize + i * blobSize, as: GPUBlob.self)
             minP = simd_min(minP, b.center - b.half)
@@ -181,25 +190,37 @@ final class GooRenderer {
         hasPrevious = false
     }
 
-    /// Offscreen render, used to produce the app icon.
+    /// Offscreen render of a square, used to produce the app icon.
     func image(blobs: [Blob], origin: V2, pointSize: Double, scale: Double, style: GooStyle) -> CGImage? {
-        let pixels = Int(pointSize * scale)
-        let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: pixels, height: pixels, mipmapped: false)
+        image(blobs: blobs, origin: origin, size: V2(pointSize, pointSize), scale: scale, style: style)
+    }
+
+    /// Offscreen render of any rectangle, also used for the demo's snapshots.
+    func image(blobs: [Blob], origin: V2, size: V2, scale: Double, style: GooStyle) -> CGImage? {
+        let width = Int(size.x * scale)
+        let height = Int(size.y * scale)
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false)
         descriptor.usage = [.renderTarget, .shaderRead]
         descriptor.storageMode = .shared
         guard let texture = device.makeTexture(descriptor: descriptor) else { return nil }
-        let scissor = pack(blobs: blobs, origin: origin, scale: scale, style: style, pixelSize: (pixels, pixels))
+        let scissor = pack(blobs: blobs, origin: origin, scale: scale, style: style, pixelSize: (width, height))
         guard let commands = encode(into: texture, scissor: scissor) else { return nil }
         commands.commit()
         commands.waitUntilCompleted()
+        // The next frame drawn to the screen must not be compared with this one.
+        hasPrevious = false
+        return Self.image(from: texture)
+    }
 
-        let rowBytes = pixels * 4
-        var data = [UInt8](repeating: 0, count: rowBytes * pixels)
-        texture.getBytes(&data, bytesPerRow: rowBytes, from: MTLRegionMake2D(0, 0, pixels, pixels), mipmapLevel: 0)
+    /// Reads a BGRA texture with premultiplied alpha back as an image.
+    static func image(from texture: MTLTexture) -> CGImage? {
+        let rowBytes = texture.width * 4
+        var data = [UInt8](repeating: 0, count: rowBytes * texture.height)
+        texture.getBytes(&data, bytesPerRow: rowBytes, from: MTLRegionMake2D(0, 0, texture.width, texture.height), mipmapLevel: 0)
         guard let provider = CGDataProvider(data: Data(data) as CFData) else { return nil }
         let info = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
         return CGImage(
-            width: pixels, height: pixels, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: rowBytes,
+            width: texture.width, height: texture.height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: rowBytes,
             space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: info, provider: provider,
             decode: nil, shouldInterpolate: true, intent: .defaultIntent
         )
@@ -212,7 +233,9 @@ final class GooRenderer {
     struct Blob {
         float4 geom;   // center.xy, half.xy
         float4 color;  // rgb, corner radius
-        float4 extra;  // opacity
+        float4 extra;  // opacity, firmness, bottom corner radius
+        float4 cutLeft;   // bottom-left cutout: center.xy, radius
+        float4 cutRight;  // bottom-right cutout: center.xy, radius
     };
 
     struct Uniforms {
@@ -221,7 +244,7 @@ final class GooRenderer {
         float4 light;   // highlight, shade, shadow alpha, shadow radius
         float4 shadow;  // offset.xy, contact alpha
         float4 stroke;  // rgb
-        Blob blobs[56];
+        Blob blobs[96];
     };
 
     struct VertexOut {
@@ -245,6 +268,37 @@ final class GooRenderer {
         return float3(lm + min(max(q.x, q.y), 0.0) - r, s * g);
     }
 
+    // One corner cutout: a disc around the button that sits there, joined to everything
+    // beyond it toward the corner. Distance with its gradient in yz.
+    static inline float3 sd_cutout(float2 p, float2 center, float radius, float side) {
+        float2 q = p - center;
+        float len = length(q);
+        float3 disc = float3(len - radius, len > 0.0 ? q / len : float2(0.0, -1.0));
+        // u is positive on both axes in the quadrant between the button and the corner.
+        float2 u = float2(side * q.x, q.y);
+        float3 quad = u.x > 0.0 && u.y > 0.0
+            ? (u.x < u.y ? float3(-u.x, -side, 0.0) : float3(-u.y, 0.0, -1.0))
+            : float3(length(min(u, 0.0)), -q / max(len, 1e-4));
+        return disc.x < quad.x ? disc : quad;
+    }
+
+    // A blob's distance with its gradient in yz: a rounded box, less its corner cutouts.
+    static inline float3 sd_blob(float2 p, Blob b) {
+        float2 local = p - b.geom.xy;
+        float3 d = sd_round_box(local, b.geom.zw, local.y > 0.0 ? b.extra.z : b.color.w);
+        for (int i = 0; i < 2; i++) {
+            float4 c = i == 0 ? b.cutLeft : b.cutRight;
+            if (c.z < 0.05) continue;
+            float3 cut = sd_cutout(p, c.xy, c.z, i == 0 ? -1.0 : 1.0);
+            // Smooth maximum: the panel's edge turns into the cutout over a wide, soft
+            // shoulder instead of meeting it at a corner.
+            float soft = min(20.0, c.z * 0.5);
+            float h = clamp(0.5 - 0.5 * (cut.x + d.x) / soft, 0.0, 1.0);
+            d = float3(mix(d.x, -cut.x, h) + soft * h * (1.0 - h), mix(d.yz, -cut.yz, h));
+        }
+        return d;
+    }
+
     fragment float4 goo_fragment(VertexOut in [[stage_in]], constant Uniforms &u [[buffer(0)]]) {
         float scale = u.view.z;
         float2 p = in.position.xy / scale + u.view.xy;
@@ -264,15 +318,17 @@ final class GooRenderer {
 
         for (int i = 0; i < count; i++) {
             Blob b = u.blobs[i];
-            float3 dg = sd_round_box(p - b.geom.xy, b.geom.zw, b.color.w);
-            float e = exp(-k * dg.x);
+            float3 dg = sd_blob(p, b);
+            // A firm blob's field falls off faster outside it, so it doesn't reach for its neighbors.
+            float firm = 1.0 + 2.6 * b.extra.y;
+            float e = exp(-k * (dg.x > 0.0 ? dg.x * firm : dg.x));
             acc += e;
             grad += e * dg.yz;
             float w = exp(-kc * dg.x);
             colorSum += w * b.color.rgb;
             colorWeight += w;
             opacitySum += w * b.extra.x;
-            float ds = sd_round_box(p - so - b.geom.xy, b.geom.zw, b.color.w).x;
+            float ds = sd_blob(p - so, b).x;
             accShadow += exp(-k * ds);
             float ws = exp(-kc * ds);
             shadowOpacitySum += ws * b.extra.x;

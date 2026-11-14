@@ -7,7 +7,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private var controller: WheelController?
     private var statusItem: NSStatusItem?
-    private var triggerIsDown = false
+    private enum Trigger { case thumb, hotKey }
+    /// Each trigger keeps its own held state, so a release one of them loses (the mouse can drop
+    /// one) never makes the other ignore its presses.
+    private var heldTriggers = Set<Trigger>()
     private let thumb = LogiButton(controlID: LogiButton.thumbPanel)
     private var thumbItem: NSMenuItem?
     private let options: LaunchOptions
@@ -20,27 +23,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let appearance = options.appearance {
             NSApp.appearance = NSAppearance(named: appearance == "light" ? .aqua : .darkAqua)
         }
-        guard let renderer = GooRenderer(), let controller = WheelController(renderer: renderer) else {
+        WheelItem.describe = WheelItem.argumentTitle
+        AppIndex.systemAppsOnly = options.demo
+        let store = options.demo ? WheelStore.temporary(rootCount: options.demoRootCount) : WheelStore.saved(at: options.storePath)
+        guard let renderer = GooRenderer(), let controller = WheelController(renderer: renderer, store: store) else {
             NSLog("Metal is unavailable.")
             NSApp.terminate(nil)
             return
         }
         self.controller = controller
         controller.timescale = options.timescale
+        controller.reduceMotion = options.reduceMotion
         controller.parentStyle = options.parentStyle
             ?? ParentStyle(rawValue: UserDefaults.standard.string(forKey: Self.parentStyleKey) ?? "") ?? .shrink
 
         if options.demo {
             controller.stage = options.stage
-            controller.startDemo(DemoDriver(exitWhenDone: options.demoExit))
+            controller.stageScript = options.demoScript
+            controller.captureDirectory = options.captureDirectory
+            controller.captureFilter = options.captureFilter
+            controller.captureFrames = options.captureFrames
+            controller.startDemo(DemoDriver(script: options.demoScript, exitWhenDone: options.demoExit, stopAt: options.demoStopAt))
             return
         }
 
         installStatusItem()
+        TriggerDebug.wheelState = { [weak controller] in controller?.debugState ?? "" }
+        TriggerDebug.start()
         HotKeyCenter.shared.register(id: Self.summonHotKey, keyCode: kVK_Space, modifiers: controlKey | optionKey) { [weak self] pressed in
-            self?.trigger(pressed)
+            self?.trigger(.hotKey, pressed)
         }
-        startThumbButton()
+        if options.thumbButton { startThumbButton() }
 
         // Open once at launch so there's something on screen, with how to summon it shown underneath.
         // The delay gives the mouse time to answer, so the hint names the right trigger.
@@ -56,25 +69,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// The thumb button and the keyboard shortcut behave the same way. A quick press opens the
     /// wheel and leaves it open; holding keeps it open until release, which picks whatever the
     /// cursor is on. Pressing again while it's open closes it.
-    private func trigger(_ pressed: Bool) {
+    /// `missed` marks a release the mouse never reported, recovered at the next press.
+    private func trigger(_ source: Trigger, _ pressed: Bool, missed: Bool = false) {
         guard let controller else { return }
         if pressed {
-            guard !triggerIsDown else { return }
-            triggerIsDown = true
+            guard heldTriggers.insert(source).inserted else {
+                TriggerDebug.event("\(source) press IGNORED, already held")
+                return
+            }
             if controller.isOpen {
+                TriggerDebug.event("\(source) press → close")
                 controller.dismiss()
             } else {
+                TriggerDebug.event("\(source) press → open")
                 controller.open(mode: .held)
             }
         } else {
-            guard triggerIsDown else { return }
-            triggerIsDown = false
-            controller.triggerReleased()
+            guard heldTriggers.remove(source) != nil else {
+                TriggerDebug.event("\(source) release IGNORED, wasn't held")
+                return
+            }
+            TriggerDebug.event("\(source) release\(missed ? " (recovered)" : "")")
+            controller.triggerReleased(missed: missed)
         }
     }
 
     private func startThumbButton() {
-        thumb.onChange = { [weak self] pressed in self?.trigger(pressed) }
+        thumb.onChange = { [weak self] pressed in self?.trigger(.thumb, pressed) }
+        thumb.onMissedRelease = { [weak self] in self?.trigger(.thumb, false, missed: true) }
         thumb.onStatus = { [weak self] _ in self?.updateThumbItem() }
         thumb.onNeedsRelaunch = {
             guard Bundle.main.bundleURL.pathExtension == "app" else { return }
@@ -161,6 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func openFromMenu() {
+        TriggerDebug.event("menu: Open Wheel")
         openCentered(hint: false)
     }
 
@@ -203,6 +226,26 @@ struct LaunchOptions {
     var appearance: String?
     var iconPath: String?
     var parentStyle: ParentStyle?
+    var demoScript = DemoScript.wheel
+    /// Script time at which the demo cursor freezes, for stills of one moment.
+    var demoStopAt: Double?
+    var reduceMotion: Bool?
+    /// Starts the demo with only this many items on the wheel, to see small rings.
+    var demoRootCount: Int?
+    /// Keeps the wheel in this file instead of Application Support, for testing.
+    var storePath: String?
+    /// False leaves the mouse alone, for testing.
+    var thumbButton = true
+    /// Writes an image of each named moment of the demo into this folder, without showing
+    /// anything on screen, and quits. A pattern limits it to some of the moments. A stretch
+    /// of the script, as "from,to,rate", writes that stretch frame by frame instead.
+    var captureDirectory: String?
+    var captureFilter: String?
+    var captureFrames: (from: Double, to: Double, rate: Double)?
+    /// Prints the demo stage's rectangle for `screencapture -R` and quits.
+    var printStageRect = false
+    /// Prints the configuration script's named moments and quits.
+    var listDemoMarks = false
 
     init(arguments: [String]) {
         var i = 1
@@ -216,6 +259,20 @@ struct LaunchOptions {
             case "--timescale": timescale = next.flatMap(Double.init) ?? 1; i += 1
             case "--appearance": appearance = next; i += 1
             case "--render-icon": iconPath = next; i += 1
+            case "--demo-script": demoScript = next.flatMap(DemoScript.init(rawValue:)) ?? .wheel; i += 1
+            case "--reduce-motion": reduceMotion = true
+            case "--demo-root-count": demoRootCount = next.flatMap(Int.init); i += 1
+            case "--store": storePath = next; i += 1
+            case "--no-thumb": thumbButton = false
+            case "--demo-marks": listDemoMarks = true
+            case "--demo-stage-rect": printStageRect = true
+            case "--demo-capture": demo = true; captureDirectory = next; i += 1
+            case "--demo-capture-filter": captureFilter = next; i += 1
+            case "--demo-capture-frames":
+                let parts = (next ?? "").split(separator: ",").compactMap { Double($0) }
+                if parts.count == 3 { captureFrames = (parts[0], parts[1], parts[2]) }
+                i += 1
+            case "--demo-stop-at": demoStopAt = next.flatMap(Double.init); i += 1
             case "--parent": parentStyle = next.flatMap(ParentStyle.init(rawValue:)); i += 1
             default: break
             }
