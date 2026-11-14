@@ -60,6 +60,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Shown while the app lacks Accessibility, which shortcuts, typing, and window actions need.
     private var accessibilityItem: NSMenuItem?
     private let options: LaunchOptions
+    /// Set once the welcome panel has been closed, so it shows only on the first launch.
+    private static let welcomedKey = "welcomed"
+    private var welcome: WelcomePanel?
+    /// Set while the welcome panel's button page is up, which waits for presses throughout.
+    private var welcomeListening = false
+    private var welcomeTimer: Timer?
 
     init(options: LaunchOptions) {
         self.options = options
@@ -85,6 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         self.controller = controller
         controller.timescale = options.timescale
         controller.reduceMotion = options.reduceMotion
+        controller.accent = options.accent.flatMap(ItemColor.init(hex:)).map { NSColor(srgbRed: CGFloat($0.rgb.x), green: CGFloat($0.rgb.y), blue: CGFloat($0.rgb.z), alpha: 1) }
 
         if options.demo {
             controller.stage = options.stage
@@ -105,6 +112,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         TriggerDebug.start()
         if options.readsMouse { startButton() }
 
+        // The first launch shows the welcome panel, which opens the wheel when it closes.
+        if options.showsWelcome || !UserDefaults.standard.bool(forKey: Self.welcomedKey) {
+            showWelcome()
+            return
+        }
         // Open once at launch so there's something on screen, with how to summon it shown underneath.
         // The delay gives the mouse time to answer, so the hint names the right trigger.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
@@ -184,6 +196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.action = #selector(assignButton)
         item.isEnabled = true
         accessibilityItem?.isHidden = AXIsProcessTrusted()
+        updateWelcome()
         let assignHint = "Assign a mouse button in the menu bar"
         if waitingForPress {
             Self.setSubtitle(item, "Press a mouse button…")
@@ -234,49 +247,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Set while Assign Button waits for a press.
     private var waitingForPress = false
     private var captureTimer: Timer?
+    /// Called with the button pressed, or nil when the wait ends without one.
+    private var captureCompletion: ((ButtonAssignment?) -> Void)?
 
-    /// Waits for a press of any mouse button but the left and right ones and assigns it. A
-    /// Logitech mouse is asked for its buttons over HID++; any other button is read from
-    /// macOS's events, which needs Accessibility.
-    @objc private func assignButton() {
-        guard let controller else { return }
-        // Choosing it again while it waits starts the wait over.
-        endCapture(nil)
-        TriggerDebug.event("menu: Assign Button")
-        let screen = Self.pointerScreen()
-        waitingForPress = true
+    /// Waits for a press of any mouse button but the left and right ones. A Logitech mouse is
+    /// asked for its buttons over HID++; any other button is read from macOS's events, which
+    /// needs Accessibility. Returns false, without calling `completion`, when neither can read
+    /// a press. A wait already going ends first, with nil.
+    private func capturePress(timeout: TimeInterval, _ completion: @escaping (ButtonAssignment?) -> Void) -> Bool {
+        finishCapture(nil)
+        captureCompletion = completion
         let standardCaptures = standard.capturePress { [weak self] number in
-            self?.endCapture(number.map(ButtonAssignment.standard), on: screen)
+            self?.finishCapture(number.map(ButtonAssignment.standard))
         }
         if logitech.canCapture {
-            logitech.capturePress(timeout: Self.captureTimeout) { [weak self] control in
-                self?.endCapture(control.map(ButtonAssignment.logitech), on: screen)
+            logitech.capturePress(timeout: timeout) { [weak self] control in
+                self?.finishCapture(control.map(ButtonAssignment.logitech))
             }
         }
         guard standardCaptures || logitech.isCapturing else {
-            waitingForPress = false
-            openAccessibility()
-            return
+            captureCompletion = nil
+            return false
         }
-        if controller.isOpen { controller.dismiss() }
-        let text = standardCaptures ? "Press a mouse button" : "Press a button on \(logitech.mouseName ?? "the mouse")"
-        controller.announce(Toast.Message(text: text, symbol: "computermouse", lasts: Self.captureTimeout), on: screen)
-        captureTimer = Timer.scheduledTimer(withTimeInterval: Self.captureTimeout, repeats: false) { [weak self] _ in
-            self?.endCapture(nil, on: screen)
-        }
-        updateButtonState()
+        return true
     }
 
-    /// Stops waiting for a press, and assigns the button pressed, if any.
-    private func endCapture(_ pressed: ButtonAssignment?, on screen: NSScreen? = nil) {
-        guard waitingForPress else { return }
-        waitingForPress = false
-        captureTimer?.invalidate()
-        captureTimer = nil
+    private func finishCapture(_ pressed: ButtonAssignment?) {
+        guard let completion = captureCompletion else { return }
+        captureCompletion = nil
         // Whichever reader didn't catch the press stops waiting. Its completion comes back here
         // with nil and finds nothing left to do.
         logitech.cancelCapture()
         standard.cancelCapture()
+        completion(pressed)
+    }
+
+    /// Waits for a press and assigns the button pressed.
+    @objc private func assignButton() {
+        guard let controller else { return }
+        TriggerDebug.event("menu: Assign Button")
+        let screen = Self.pointerScreen()
+        // Choosing it again while it waits starts the wait over.
+        let started = capturePress(timeout: Self.captureTimeout) { [weak self] pressed in
+            self?.endCapture(pressed, on: screen)
+        }
+        guard started else {
+            openAccessibility()
+            return
+        }
+        waitingForPress = true
+        if controller.isOpen { controller.dismiss() }
+        let text = standard.isCapturing ? "Press a mouse button" : "Press a button on \(logitech.mouseName ?? "the mouse")"
+        controller.announce(Toast.Message(text: text, symbol: "computermouse", lasts: Self.captureTimeout), on: screen)
+        captureTimer = Timer.scheduledTimer(withTimeInterval: Self.captureTimeout, repeats: false) { [weak self] _ in
+            self?.finishCapture(nil)
+        }
+        updateButtonState()
+    }
+
+    /// Assigns the button Assign Button caught, if any.
+    private func endCapture(_ pressed: ButtonAssignment?, on screen: NSScreen) {
+        waitingForPress = false
+        captureTimer?.invalidate()
+        captureTimer = nil
         defer { updateButtonState() }
         guard let controller else { return }
         guard let pressed else {
@@ -284,9 +317,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         assign(pressed)
-        if let screen {
-            controller.announce(Toast.Message(text: "\(pressed.name) opens the wheel", symbol: "computermouse.fill"), on: screen)
-        }
+        controller.announce(Toast.Message(text: "\(pressed.name) opens the wheel", symbol: "computermouse.fill"), on: screen)
     }
 
     private func assign(_ new: ButtonAssignment) {
@@ -300,6 +331,88 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             logitech.assign(nil)
             standard.button = number
         }
+    }
+
+    // MARK: Welcome
+
+    private func showWelcome() {
+        let panel = WelcomePanel()
+        panel.onButtonPage = { [weak self] shown in
+            if shown { self?.startWelcomeListening() } else { self?.stopWelcomeListening() }
+        }
+        panel.onAllow = { [weak self] permission in
+            switch permission {
+            case .accessibility: self?.openAccessibility()
+            case .inputMonitoring: self?.openInputMonitoring()
+            }
+        }
+        panel.onClose = { [weak self] point in self?.welcomeClosed(at: point) }
+        welcome = panel
+        updateWelcome()
+        panel.show()
+    }
+
+    /// While the button page is up, every press of a mouse button other than the left and right
+    /// ones assigns it. Permissions allowed meanwhile take effect within a second.
+    private func startWelcomeListening() {
+        // A copy that leaves the mouse alone for testing doesn't take its buttons either.
+        guard options.readsMouse else { return }
+        welcomeListening = true
+        listenForWelcome()
+        welcomeTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            self?.listenForWelcome()
+            self?.updateWelcome()
+        }
+    }
+
+    /// Starts waiting again when a reader that could take the press isn't waiting: after a
+    /// press, after a wait times out, or once a permission or a Logitech mouse arrives.
+    private func listenForWelcome() {
+        guard welcomeListening, !waitingForPress else { return }
+        let standardIdle = AXIsProcessTrusted() && !standard.isCapturing
+        let logitechIdle = logitech.canCapture && !logitech.isCapturing
+        guard standardIdle || logitechIdle else { return }
+        _ = capturePress(timeout: 600) { [weak self] pressed in
+            guard let self, let pressed else { return }
+            self.assign(pressed)
+            self.updateWelcome(assigned: true)
+            self.updateButtonState()
+            self.listenForWelcome()
+        }
+    }
+
+    private func stopWelcomeListening() {
+        guard welcomeListening else { return }
+        welcomeListening = false
+        welcomeTimer?.invalidate()
+        welcomeTimer = nil
+        if !waitingForPress { finishCapture(nil) }
+    }
+
+    private func updateWelcome(assigned: Bool = false) {
+        guard let welcome else { return }
+        var missing: [WelcomePanel.Permission] = []
+        if !AXIsProcessTrusted() { missing.append(.accessibility) }
+        if logitech.status == .needsPermission { missing.append(.inputMonitoring) }
+        let name: String?
+        switch assignment {
+        case .some(let assigned): name = assigned.name
+        // A Logitech mouse's thumb button opens the wheel until a button is assigned, on a
+        // mouse that has one.
+        case nil:
+            if case .ready = logitech.status { name = LogiButton.name(of: LogiButton.thumbPanel) } else { name = nil }
+        }
+        welcome.update(WelcomePanel.ButtonState(name: name, missing: missing), assigned: assigned)
+    }
+
+    /// The panel has drawn in to a hub at `point`, and the wheel opens there.
+    private func welcomeClosed(at point: CGPoint) {
+        stopWelcomeListening()
+        welcome = nil
+        UserDefaults.standard.set(true, forKey: Self.welcomedKey)
+        updateButtonState()
+        guard let controller, !controller.isOpen else { return }
+        controller.open(at: point, mode: .sticky, hint: true, formed: true)
     }
 
     @objc private func openInputMonitoring() {
@@ -404,6 +517,8 @@ struct LaunchOptions {
     /// Script time at which the demo cursor freezes, for stills of one moment.
     var demoStopAt: Double?
     var reduceMotion: Bool?
+    /// A hex color the demo uses in place of the system's accent color.
+    var accent: String?
     /// Starts the demo with only this many items on the wheel, to see small rings.
     var demoRootCount: Int?
     /// Keeps the wheel in this file instead of Application Support, for testing.
@@ -416,6 +531,8 @@ struct LaunchOptions {
     var captureDirectory: String?
     var captureFilter: String?
     var captureFrames: (from: Double, to: Double, rate: Double)?
+    /// Shows the welcome panel even when it has been closed before.
+    var showsWelcome = false
     /// Prints the demo stage's rectangle for `screencapture -R` and quits.
     var printStageRect = false
     /// Prints the configuration script's named moments and quits.
@@ -435,10 +552,12 @@ struct LaunchOptions {
             case "--render-icon": iconPath = next; i += 1
             case "--demo-script": demoScript = next.flatMap(DemoScript.init(rawValue:)) ?? .wheel; i += 1
             case "--reduce-motion": reduceMotion = true
+            case "--accent": accent = next; i += 1
             case "--demo-root-count": demoRootCount = next.flatMap(Int.init); i += 1
             case "--store": storePath = next; i += 1
             case "--no-mouse", "--no-thumb": readsMouse = false
             case "--demo-marks": listDemoMarks = true
+            case "--welcome": showsWelcome = true
             case "--demo-stage-rect": printStageRect = true
             case "--demo-capture": demo = true; captureDirectory = next; i += 1
             case "--demo-capture-filter": captureFilter = next; i += 1

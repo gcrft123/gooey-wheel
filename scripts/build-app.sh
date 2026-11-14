@@ -15,6 +15,9 @@ cp "$bin" "$app/Contents/MacOS/GooeyWheel"
 helper="$app/Contents/Frameworks/libGooeyNowPlaying.dylib"
 cp "$products/libGooeyNowPlaying.dylib" "$helper"
 
+# The welcome panel's video (scripts/render-welcome-video.sh makes it).
+cp assets/welcome.mov "$app/Contents/Resources/welcome.mov"
+
 # App icon, rendered by the app's own goo shader.
 iconset="$(mktemp -d)/AppIcon.iconset"
 mkdir -p "$iconset"
