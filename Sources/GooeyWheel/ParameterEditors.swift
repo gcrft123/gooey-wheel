@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 
 /// The control for one action setting. Its value is the string the item stores.
 class ParameterView: NSView {
@@ -448,15 +449,33 @@ private final class KeystrokeRecorder: ParameterView, KeyRecording, EditorAnimat
     private var well: CGRect { CGRect(x: 0, y: 0, width: bounds.width, height: 120) }
     private var ring = Spring(0, SpringConfig.critical(k: 500))
 
+    /// Takes presses before the system's shortcuts and other apps' hotkeys can act on them.
+    private lazy var capture = KeyCapture { [weak self] event in
+        // A demo's panel is never key, and the user's keyboard stays theirs.
+        guard let self, self.recording, NSApp.keyWindow === self.window else { return false }
+        // Esc on its own still steps back out of the panel.
+        let flags = event.modifierFlags.intersection([.control, .option, .shift, .command])
+        if event.keyCode == UInt16(kVK_Escape), flags.isEmpty { return false }
+        self.record(event)
+        return true
+    }
+
     override func becomeFirstResponder() -> Bool {
+        capture.start()
         needsDisplay = true
         return true
     }
 
     override func resignFirstResponder() -> Bool {
+        capture.stop()
         held = ""
         needsDisplay = true
         return true
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil { capture.stop() }
+        super.viewWillMove(toWindow: newWindow)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -477,7 +496,7 @@ private final class KeystrokeRecorder: ParameterView, KeyRecording, EditorAnimat
     }
 
     private static let named: [UInt16: String] = [
-        36: "↩", 48: "⇥", 49: "Space", 51: "⌫", 117: "⌦", 123: "←", 124: "→", 125: "↓", 126: "↑",
+        36: "↩", 48: "⇥", 49: "Space", 51: "⌫", 53: "⎋", 117: "⌦", 123: "←", 124: "→", 125: "↓", 126: "↑",
         115: "↖", 119: "↘", 116: "⇞", 121: "⇟", 76: "⌤",
         122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6", 98: "F7", 100: "F8", 101: "F9", 109: "F10", 103: "F11", 111: "F12",
     ]
