@@ -18,7 +18,7 @@ final class WheelLayers {
 
     static let labelFont = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
     static let hintFont = NSFont.systemFont(ofSize: 12, weight: .medium)
-    var hintText = "Press the thumb button to open" {
+    var hintText = "Assign a mouse button in the menu bar" {
         didSet { if hintText != oldValue { hintLabel.string = nil } }
     }
 

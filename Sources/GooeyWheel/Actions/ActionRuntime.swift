@@ -84,6 +84,9 @@ struct ActionBehavior {
     var choose: ((LiveChoice, ActionInvocation) throws -> Void)? = nil
     /// Whether this Mac has what the action needs, such as a backlit keyboard.
     var isAvailable: () -> Bool = { true }
+    /// What the toast says when the action isn't available, in place of "… isn't available on
+    /// this Mac", such as for a feature the mouse lacks.
+    var unavailableMessage: String? = nil
 
     init(timing: Timing = .now, run: ((ActionInvocation) throws -> Void)? = nil) {
         self.timing = timing

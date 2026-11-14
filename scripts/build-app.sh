@@ -42,7 +42,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSAppleEventsUsageDescription</key><string>Gooey Wheel asks Finder to empty the Trash and to act on the files selected in it.</string>
-  <key>NSBluetoothAlwaysUsageDescription</key><string>Gooey Wheel reads the thumb button over Bluetooth while Logi Options+ is running.</string>
+  <key>NSBluetoothAlwaysUsageDescription</key><string>Gooey Wheel reads your mouse's battery level over Bluetooth, and on a Logitech mouse its buttons and haptics while Logi Options+ is running.</string>
 </dict>
 </plist>
 PLIST

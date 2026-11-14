@@ -2,7 +2,7 @@
 
 # Gooey Wheel
 
-A native macOS radial actions menu, a redesign of the Logitech Actions Ring with the liquid look of [Gooey](https://libraries.dev/gooey). Each bubble runs an action: a media key, a window layout, a system toggle, an app, a shortcut, a script. Some bubbles are controls in their own right, such as a volume bubble that turns into a slider.
+A native macOS radial actions menu for any mouse, modeled on the Logitech Actions Ring and given the liquid look of [Gooey](https://libraries.dev/gooey). Each bubble runs an action: a media key, a window layout, a system toggle, an app, a shortcut, a script. Some bubbles are controls in their own right, such as a volume bubble that turns into a slider.
 
 ## Run
 
@@ -13,18 +13,20 @@ open "build/Gooey Wheel.app"
 
 Requires macOS 14 or later and the Swift toolchain from Xcode. The app has a menu bar item and no Dock icon.
 
-The menu bar item has Open Wheel, Assign Button, Customize Wheel, Haptic Feedback, and Quit Gooey Wheel. Assign Button shows the mouse button that opens the wheel; choosing it waits up to 15 seconds for a press and assigns whichever button is pressed. Customize Wheel opens the wheel in configuration. Haptic Feedback, shown only for a mouse with a haptic motor, turns the wheel's taps through the mouse on or off.
+The menu bar item has Open Wheel, Assign Button, Customize Wheel, Haptic Feedback, and Quit Gooey Wheel. Assign Button shows the mouse button that opens the wheel; choosing it waits up to 15 seconds for a press and assigns whichever button is pressed, other than the left and right buttons. Customize Wheel opens the wheel in configuration. Haptic Feedback, shown only for a mouse with a haptic motor the app can drive, turns the wheel's taps through the mouse on or off.
 
 ## Use
 
 | Input | Result |
 | --- | --- |
-| Click the assigned mouse button (the MX Master 4 thumb button at first) | Opens the wheel and leaves it open |
+| Click the assigned mouse button | Opens the wheel and leaves it open |
 | Hold the button, move toward a bubble, release | Picks that bubble. Releasing over nothing closes the wheel |
 | Click a bubble | Picks it |
 | Rest the cursor on a teardrop-shaped bubble | Opens that folder as a new ring around the bubble |
 | Rest the cursor on the small parent ring, click the center, or press Esc | Goes back one level |
 | Click outside the wheel, or press the button again | Closes |
+
+Until a button is assigned, the wheel opens from the menu bar item, and on a Logitech mouse with a thumb button, from that button (see [Mouse button](#mouse-button)).
 
 ## Controls in bubbles
 
@@ -32,7 +34,7 @@ Some actions have a state, and their bubbles show it and change it in place.
 
 | Kind | Actions | How it works |
 | --- | --- | --- |
-| Slider | Volume, Brightness, Keyboard Brightness, Pointer Speed | The level is drawn around the bubble's rim and read out in the hub. Scrolling over the bubble, with the scroll wheel, the thumb wheel, or a trackpad, changes it a step at a time. Pressing on the bubble turns it into a bar under the cursor, and dragging along the bar sets the level; letting go turns it back. A click or a release of the button over it leaves the bar open, following the cursor, until the next click closes the wheel. Resting on the small parent ring, or Esc, goes back to the ring |
+| Slider | Volume, Brightness, Keyboard Brightness, Pointer Speed | The level is drawn around the bubble's rim and read out in the hub. Scrolling over the bubble, with a mouse's scroll wheel or side wheel or with a trackpad, changes it a step at a time. Pressing on the bubble turns it into a bar under the cursor, and dragging along the bar sets the level; letting go turns it back. A click or a release of the button over it leaves the bar open, following the cursor, until the next click closes the wheel. Resting on the small parent ring, or Esc, goes back to the ring |
 | Toggle | Mute, Mute Microphone, Do Not Disturb, Dark Mode, Keep Awake, Wi-Fi, Dock Hiding, Stage Manager, Precision Mode, Free Spin, Mouse Haptics, Natural Scrolling | The glyph shows the state and turns the accent color when on. The hub says On or Off. Choosing it flips it |
 | Stepper | Undo, Zoom, Switch Tab | Scrolling over the bubble steps: up undoes and zooms in, down redoes, zooms out, and moves to the next tab. Choosing it does it once (Undo, Actual Size, Next Tab) |
 | Picker | Media Controls, Sound Output, Microphone Input, Easy-Switch | Opens like a folder into choices read when it opens: the transport buttons with the track playing in the hub, the audio devices, the mouse's paired computers. The one in effect is lit. Media Controls stays open between presses |
@@ -40,7 +42,15 @@ Some actions have a state, and their bubbles show it and change it in place.
 
 Hovering a Move Window bubble shows where the front window would go, as a tinted outline on the screen.
 
-An action this Mac can't run, such as Keyboard Brightness without a backlit Apple keyboard, is shown faded, says so in the hub, and shakes its head when chosen.
+An action this Mac or mouse can't run, such as Keyboard Brightness without a backlit Apple keyboard or Free Spin on a mouse without a free-spinning wheel, is shown faded, says so in the hub, and shakes its head when chosen.
+
+### Mouse actions
+
+Pointer Speed and Precision Mode change the sensor's resolution (DPI) on a Logitech mouse that lets it be set, and macOS's tracking speed for any other mouse. In tracking speed, Pointer Speed's slider covers the Tracking Speed slider in System Settings, choosing it steps through that slider's tick marks, and Precision Mode drops to a third of the speed, at most 0.5 on macOS's scale of 0 to 3. On a Logitech mouse Precision Mode drops to a third of the DPI, at most 400.
+
+Mouse Battery reads the charge over HID++ from a Logitech mouse, from macOS for Apple's mice, and from the standard Bluetooth Battery service for other Bluetooth mice. That last one asks for Bluetooth permission the first time. A wired mouse, or one on another brand's receiver, has no reading.
+
+Free Spin, Mouse Haptics, and Easy-Switch work on Logitech mice that have those features. Natural Scrolling is macOS's setting and works with any mouse.
 
 The hub's label takes a second line when it is long, with the reading under the name.
 
@@ -108,11 +118,17 @@ The track playing is read from MediaRemote, which macOS 15.4 and later only answ
 
 ## Mouse button
 
-The app reads the assigned button, the MX Master 4's thumb panel until another is assigned, from the mouse itself, over Logitech's HID++ protocol. It doesn't use Logi Options+ and works whether or not Options+ is running. The mouse can be connected by Bluetooth or through a Logi Bolt receiver, and Easy-Switching between the two keeps the button working.
+Any mouse button other than the left and right buttons can open the wheel. Assign Button waits for a press and assigns that button, which then stops doing what it did before.
 
-macOS requires Input Monitoring permission to open the mouse. Allow Gooey Wheel under System Settings → Privacy & Security → Input Monitoring, or choose "Allow Input Monitoring…" in the menu bar item, which shows it in place of Assign Button until it's allowed. The button starts working within a couple of seconds of allowing it.
+The app reads the button from the events macOS makes of it. macOS numbers the buttons: 2 is the middle button, and the side buttons follow, usually 3 for back and 4 for forward. An event tap takes the assigned button's presses and releases out of the event stream before any app sees them, and turns its drags into plain pointer moves. The tap needs Accessibility. Until it's allowed, the menu bar item shows "Allow Accessibility…" in place of Assign Button, and the button starts working within a couple of seconds of allowing it. The choice is saved under the `mouseButton` default as the button's number.
 
-Assign Button asks the mouse to divert every button it allows, except the left and right buttons, until one is pressed, and then hands them back. Those buttons do nothing else for that moment. The choice is saved under the `button` default as the button's HID++ control ID.
+### Logitech mice
+
+A Logitech mouse that speaks Logitech's HID++ protocol is also read from the mouse itself. That reaches buttons macOS never sees, such as the MX Master 4's thumb panel, which opens the wheel until another button is assigned. The app doesn't use Logi Options+ and works whether or not Options+ is running. The mouse can be connected by Bluetooth or through a Logi Bolt receiver, and Easy-Switching between the two keeps the button working.
+
+macOS requires Input Monitoring permission to open a Logitech mouse. Allow Gooey Wheel under System Settings → Privacy & Security → Input Monitoring, or choose "Allow Input Monitoring…" in the menu bar item, which shows it in place of Assign Button until it's allowed while a Logitech button is assigned. The button starts working within a couple of seconds of allowing it.
+
+With such a mouse connected, Assign Button also asks it to divert every button it allows, except the left and right buttons, until one is pressed, and then hands them back. Those buttons do nothing else for that moment. A button pressed on the Logitech mouse is saved under the `button` default as its HID++ control ID. A button the mouse doesn't let the app divert is read through the event tap like any other mouse's.
 
 Through a Bolt receiver, the app opens the receiver's HID++ interface and reaches the mouse by its slot on the receiver. The receiver announces when the mouse's link comes up or goes down, such as when the mouse wakes or is switched to another computer, and the app sets the button up again each time it comes back.
 
@@ -122,11 +138,11 @@ After a pause of a second or more, the mouse sometimes never reports the release
 
 If Options+ is running and has the thumb panel assigned to its own Actions Ring in an app profile, both will open in that app. Set the panel to "Do nothing" in that profile.
 
-`defaults write dev.gooey.wheel TriggerDebug -bool YES` turns on a diagnostic log at `~/Library/Logs/Gooey Wheel/trigger.log`. It records every message from the mouse on both channels, each press and what it did to the wheel, clicks, app switches, and main-thread stalls. `defaults delete dev.gooey.wheel TriggerDebug` turns it off.
+`defaults write dev.gooey.wheel TriggerDebug -bool YES` turns on a diagnostic log at `~/Library/Logs/Gooey Wheel/trigger.log`. It records each press the event tap reads, every message from a Logitech mouse on both channels, what each press did to the wheel, clicks, app switches, and main-thread stalls. `defaults delete dev.gooey.wheel TriggerDebug` turns it off.
 
 ## Haptic feedback
 
-A mouse with a haptic motor taps when the pointer moves onto a bubble, a folder, picker, or slider opens, a ring closes back to its parent, a slider passes a notch or reaches its end, an item is chosen, or something can't be done. Configuration mode taps for picking up, dropping, adding, and removing bubbles. Any Logitech mouse with HID++ feature `0x19B0` qualifies; in November 2026 that's the MX Master 4 and its Special and Developer Editions. The G Pro X2 Superstrike's haptic clicks use a different feature and can't play taps. Each mouse reports which waveforms it has, and each tap uses the closest one it has.
+A mouse with a haptic motor taps when the pointer moves onto a bubble, a folder, picker, or slider opens, a ring closes back to its parent, a slider passes a notch or reaches its end, an item is chosen, or something can't be done. Configuration mode taps for picking up, dropping, adding, and removing bubbles. The app drives one kind of motor, the one in Logitech mice with HID++ feature `0x19B0`. In November 2026 that's the MX Master 4 and its Special and Developer Editions. The G Pro X2 Superstrike's haptic clicks use a different feature and can't play taps. Each mouse reports which waveforms it has, and each tap uses the closest one it has. Other mice give no taps. A Force Touch trackpad taps for slider notches, slider ends, and refusals whatever the mouse.
 
 Taps are on by default. The menu bar item's "Haptic Feedback" turns them off and only shows while such a mouse is connected. The mouse's own haptics switch, which the Mouse Haptics action flips, has to be on too. Each tap is a HID++ request, and the mouse sends its notifications, scrolling included, to whichever channel sent the last request. So while Logi Options+'s background agent runs (it keeps running after Options+ is quit), taps go over Options+'s own Bluetooth channel, written without response the way Options+ writes, and Options+ keeps the scroll wheel. Without Bluetooth permission there are then no taps.
 
@@ -140,8 +156,9 @@ Taps are on by default. The menu bar item's "Haptic Feedback" turns them off and
 - `EditorHost.swift` lays a panel's AppKit views over the goo panel, clipped to the same outline, and fades them in once it is most of the way open. `EditorContent.swift` is what the four panels share: each edits a copy of the item and writes it back on save. The panels are `ActionEditor.swift` (with `ParameterEditors.swift` for each kind of setting), `ColorEditor.swift`, `IconEditor.swift`, and `RenameEditor.swift`. `EditorList.swift` is the list they share and `EditorFields.swift` the fields. Lists, the icon grid, and the controls are stepped each frame on the same springs as the wheel, and their highlights glide from one row or cell to the next.
 - `WheelLayers.swift` draws icons and labels as Core Animation layers above the goo. The Metal drawable is presented inside the same transaction that moves those layers, so they stay on the same frame.
 - `WheelController.swift` owns the overlay panel and the display link. The panel doesn't activate the app, so the frontmost app keeps focus. Nothing renders while the wheel is closed, and a settled wheel skips identical frames.
-- `LogiButton.swift` asks the mouse to divert the assigned button (the thumb panel is control `0x01A0`) and listens for its press and release notifications. It also lists the mouse's buttons and diverts them all for a moment to find the one pressed for Assign Button. `ButtonTracker` merges the two reports the mouse sends for each change and recovers releases it drops. `VendorChannel.swift` listens for the same notifications on Logitech's Bluetooth characteristic. `LogiReceiver.swift` finds devices behind a Bolt receiver from its connection notifications, and `HIDPPPort.swift` is the opened HID interface that a Bluetooth mouse has alone and a receiver's devices share.
-- `Actions/` holds what the bubbles do. `ActionRuntime.swift` defines an action's behavior: what choosing it does, and for a control its state, level, steps, or choices. Each category's actions are in their own file, such as `AudioActions.swift`, `WindowActions.swift`, and `SystemActions.swift`. `ActionRunner.swift` runs a chosen item, waiting for the wheel to leave the screen first when the action captures or covers it, and answers the wheel's questions about state. `KeySender.swift` posts key combinations, media keys, and text, finding keys by the character they type in the current keyboard layout.
+- `MouseButtonTap.swift` reads the assigned button of any mouse through an event tap, and takes its events out of the stream.
+- `LogiButton.swift` asks a Logitech mouse to divert the assigned button (the thumb panel is control `0x01A0`) and listens for its press and release notifications. It also lists the mouse's buttons and diverts them all for a moment to find the one pressed for Assign Button. `ButtonTracker` merges the two reports the mouse sends for each change and recovers releases it drops. `VendorChannel.swift` listens for the same notifications on Logitech's Bluetooth characteristic. `LogiReceiver.swift` finds devices behind a Bolt receiver from its connection notifications, and `HIDPPPort.swift` is the opened HID interface that a Bluetooth mouse has alone and a receiver's devices share.
+- `Actions/` holds what the bubbles do. `ActionRuntime.swift` defines an action's behavior: what choosing it does, and for a control its state, level, steps, or choices. Each category's actions are in their own file, such as `AudioActions.swift`, `WindowActions.swift`, and `SystemActions.swift`. `ActionRunner.swift` runs a chosen item, waiting for the wheel to leave the screen first when the action captures or covers it, and answers the wheel's questions about state. `KeySender.swift` posts key combinations, media keys, and text, finding keys by the character they type in the current keyboard layout. `MouseActions.swift` holds the mouse's settings, with `TrackingSpeed.swift` and `MouseBattery.swift` for mice that don't speak HID++.
 - `WheelSim+Controls.swift` is the wheel's side of the controls: the state it last read for each item, scrolling, a slider's bar, and pickers. A bar is a `Level` whose hub is the bar; a picker is a `Level` whose bubbles are the choices.
 - `HotKey.swift` registers Esc through Carbon while the wheel is open, which needs no Accessibility permission.
 

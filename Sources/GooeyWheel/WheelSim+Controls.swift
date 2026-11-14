@@ -186,7 +186,7 @@ extension WheelSim {
 
     // MARK: Scrolling
 
-    /// A turn of the scroll wheel or thumb wheel, or a swipe on a trackpad, while the wheel is
+    /// A turn of a scroll wheel, including a side wheel, or a swipe on a trackpad, while the wheel is
     /// open. `up` and `right` are in notches for a wheel and in points for a trackpad, positive
     /// for a wheel turned away from the hand or to the right, whatever the scrolling direction
     /// setting. Over a slider it changes the level; over a stepper it steps.

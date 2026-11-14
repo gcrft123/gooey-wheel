@@ -1,11 +1,11 @@
 import AppKit
 
-/// A diagnostic for the thumb button, off by default. Turn it on with
+/// A diagnostic for the button that opens the wheel, off by default. Turn it on with
 /// `defaults write dev.gooey.wheel TriggerDebug -bool YES` and relaunch.
 ///
-/// It logs every stage of a press, from the mouse's messages on both channels to the wheel's
-/// state, along with clicks, app switches, sleep, and main-thread stalls, to
-/// `~/Library/Logs/Gooey Wheel/trigger.log`.
+/// It logs every stage of a press, from the event tap or a Logitech mouse's HID++ messages on
+/// both its channels to the wheel's state, along with clicks, app switches, sleep, and
+/// main-thread stalls, to `~/Library/Logs/Gooey Wheel/trigger.log`.
 enum TriggerDebug {
     static let enabled = UserDefaults.standard.bool(forKey: "TriggerDebug")
 
