@@ -5,8 +5,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-swift build -c release
-bin="$(swift build -c release --show-bin-path)/GooeyWheel"
+swift build -c release --disable-keychain
+bin="$(swift build -c release --disable-keychain --show-bin-path)/GooeyWheel"
 frames="$(mktemp -d)/frames"
 
 # The script's last moment matches its first, so that frame is left out and the loop is seamless.
