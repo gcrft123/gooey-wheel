@@ -99,7 +99,6 @@ final class LogiButton {
         vendor.onMessage = { [weak self] name, report in
             for link in self?.links ?? [] where link.index == LogiLink.direct && link.name == name { link.handleVendor(report) }
         }
-        vendor.start()
     }
 
     /// Asks the mouse to divert the button again. Other software can switch it back, so this runs
@@ -122,8 +121,9 @@ final class LogiButton {
     private static let bluetoothPage: UInt32 = 0xFF43
     private static let bluetoothUsage: UInt32 = 0x0202
 
-    /// Reads `control` from now on, and hands the button read until now back to the mouse.
-    func assign(_ control: UInt16) {
+    /// Reads `control` from now on, or no button when it's nil, and hands the button read until
+    /// now back to the mouse.
+    func assign(_ control: UInt16?) {
         guard control != controlID else { return }
         let old = controlID
         controlID = control
@@ -134,6 +134,8 @@ final class LogiButton {
     /// Whether a connected mouse can report presses of its other buttons, for `capturePress`.
     var canCapture: Bool { links.contains { $0.canCapture } }
     var isCapturing: Bool { capture != nil }
+    /// The name of the mouse whose buttons `capturePress` would wait for.
+    var mouseName: String? { links.first { $0.canCapture }?.name }
     private var capture: ((UInt16?) -> Void)?
     private var captureTimer: Timer?
 
@@ -194,7 +196,9 @@ final class LogiButton {
         let port = HIDPPPort(device: device)
         if IOHIDDeviceConformsTo(device, Self.bluetoothPage, Self.bluetoothUsage) {
             add(LogiLink(port: port, owner: self))
-            vendor.refresh()
+            // Bluetooth is only needed, and its permission only asked for, once there's a
+            // Logitech mouse on Bluetooth.
+            vendor.start()
         } else {
             let receiver = LogiReceiver(port: port, owner: self)
             receivers.append(receiver)
@@ -401,11 +405,9 @@ final class LogiLink {
         if ready { divert() }
     }
 
+    /// Finds the controls feature, which Assign Button needs too, then diverts the owner's
+    /// button if it has one.
     private func setUpButton() {
-        guard owner.controlID != nil else {
-            discover()
-            return
-        }
         // Feature 0 is the root: ask it where the controls feature lives on this device.
         request(0x00, 0, [UInt8(Self.controlsFeature >> 8), UInt8(Self.controlsFeature & 0xFF)]) { [weak self] reply in
             guard let self else { return }
@@ -414,6 +416,10 @@ final class LogiLink {
                 return
             }
             self.controlsIndex = reply[0]
+            guard self.owner.controlID != nil else {
+                self.discover()
+                return
+            }
             self.claim()
         }
     }
@@ -463,7 +469,7 @@ final class LogiLink {
         analyticsOn = false
         ready = false
         tracker = ButtonTracker()
-        if controlsIndex == 0 { setUpButton() } else { claim() }
+        if controlsIndex == 0 { setUpButton() } else if owner.controlID != nil { claim() }
     }
 
     /// The parameters of the request that undoes this app's changes to `control`'s reporting,

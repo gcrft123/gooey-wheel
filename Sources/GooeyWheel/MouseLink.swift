@@ -12,7 +12,7 @@ enum HIDPPFeature {
     static let adjustableDPI: UInt16 = 0x2201
 }
 
-/// The connected Logitech mouse, for everything other than the thumb button. It talks through the
+/// The connected Logitech mouse, for everything other than the button that opens the wheel. It talks through the
 /// links of the `LogiButton` that opened the mouse, so there is one owner of the device and one
 /// queue of requests.
 ///
@@ -26,7 +26,7 @@ final class MouseLink {
     /// Collects the requests `post` would send, without sending them, for the self-test.
     var interceptPosts: (([UInt8]) -> Void)?
 
-    /// Talks to the mouse through `button`, the one the app reads the thumb button with.
+    /// Talks to the mouse through `button`, the one the app reads the mouse's buttons with.
     func use(_ button: LogiButton) {
         self.button = button
         button.onLinksChanged = { MouseState.shared.mouseChanged() }
@@ -48,6 +48,11 @@ final class MouseLink {
     /// The mouse, once it has connected and its features are known.
     var mouse: LogiLink? {
         button?.links.first { $0.isMouse && $0.featuresKnown }
+    }
+
+    /// Whether a Logitech mouse is connected, whether or not it has finished connecting.
+    var hasMouse: Bool {
+        button?.links.contains { $0.isMouse } == true
     }
 
     func has(_ feature: UInt16) -> Bool {

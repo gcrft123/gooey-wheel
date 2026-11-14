@@ -1,12 +1,20 @@
 import AppKit
 
-/// Settings of the Logitech mouse, changed over HID++ through `MouseState`, and macOS's scroll
-/// direction.
+/// The mouse's settings. A Logitech mouse's own settings are changed over HID++ through
+/// `MouseState`. On any other mouse, Pointer Speed and Precision Mode change macOS's tracking
+/// speed instead, and Mouse Battery reads what macOS or Bluetooth reports (`MouseBattery`).
+/// Free Spin, Mouse Haptics, and Easy-Switch need a mouse that has them.
 enum MouseActions {
     /// Reads the mouse's settings again in the background. The wheel calls this when it opens.
     static func refresh() {
         MouseState.shared.refresh()
+        // A Logitech mouse's charge comes over HID++, once it has finished connecting.
+        if !MouseLink.shared.hasMouse { MouseBattery.shared.refresh() }
     }
+
+    /// Whether the speed is the sensor's DPI, on a mouse that lets it be set, rather than
+    /// macOS's tracking speed.
+    private static var setsDPI: Bool { MouseLink.shared.has(HIDPPFeature.adjustableDPI) }
 
     private static var state: MouseState { .shared }
 
@@ -48,22 +56,28 @@ enum MouseActions {
     }
 
     private static var pointerSpeed: ActionBehavior {
-        var behavior = ActionBehavior(isAvailable: available(HIDPPFeature.adjustableDPI)) { _ in
-            guard let dpi = state.dpi else { throw ActionError.unavailable("Pointer Speed") }
+        var behavior = ActionBehavior { _ in
             forgetPrecision()
+            guard setsDPI else { return try TrackingSpeed.set(TrackingSpeed.nextTick(after: TrackingSpeed.current)) }
+            guard let dpi = state.dpi else { throw ActionError.unavailable("Pointer Speed") }
             state.setDPI(nextPreset(after: dpi.current, in: dpi.supported))
         }
         behavior.level = LevelControl(
-            read: { state.dpi.map { level(forDPI: $0.current, in: $0.supported) } },
+            read: {
+                guard setsDPI else { return TrackingSpeed.level(of: TrackingSpeed.current) }
+                return state.dpi.map { level(forDPI: $0.current, in: $0.supported) }
+            },
             write: { value in
-                guard let dpi = state.dpi else { throw ActionError.unavailable("Pointer Speed") }
                 forgetPrecision()
+                guard setsDPI else { return try TrackingSpeed.set(TrackingSpeed.speed(forLevel: value)) }
+                guard let dpi = state.dpi else { throw ActionError.unavailable("Pointer Speed") }
                 state.setDPI(MouseActions.dpi(forLevel: value, in: dpi.supported))
             },
             // A 24th of the scale is about a sixth faster or slower, and always at least one of
-            // the sensor's steps.
+            // the sensor's steps. In tracking speed it is an eighth of a step of macOS's scale.
             detent: 1.0 / 24,
             format: { value in
+                guard setsDPI else { return "\(Int((value * 100).rounded()))%" }
                 guard let dpi = state.dpi else { return "" }
                 return "\(MouseActions.dpi(forLevel: value, in: dpi.supported)) DPI"
             }
@@ -76,14 +90,25 @@ enum MouseActions {
     /// The DPI to go back to when precision mode is turned off. Kept in the app's defaults, so
     /// it survives a relaunch.
     private static let returnKey = "MousePrecisionReturnDPI"
+    /// The tracking speed to go back to, on a mouse whose DPI isn't set.
+    private static let returnSpeedKey = "MousePrecisionReturnSpeed"
 
     private static var returnDPI: Int? {
         let value = UserDefaults.standard.integer(forKey: returnKey)
         return value > 0 ? value : nil
     }
 
+    private static var returnSpeed: Double? {
+        UserDefaults.standard.object(forKey: returnSpeedKey) as? Double
+    }
+
     private static func forgetPrecision() {
         UserDefaults.standard.removeObject(forKey: returnKey)
+        UserDefaults.standard.removeObject(forKey: returnSpeedKey)
+    }
+
+    private static func isPrecise(_ speed: Double, returningTo back: Double) -> Bool {
+        abs(speed - TrackingSpeed.precision(from: back)) < 0.001
     }
 
     /// The slow speed for precision mode: a third of the usual speed, at most 400 DPI.
@@ -92,7 +117,18 @@ enum MouseActions {
     }
 
     private static var precision: ActionBehavior {
-        var behavior = ActionBehavior(isAvailable: available(HIDPPFeature.adjustableDPI)) { _ in
+        var behavior = ActionBehavior { _ in
+            guard setsDPI else {
+                let speed = TrackingSpeed.current
+                if let back = returnSpeed, isPrecise(speed, returningTo: back) {
+                    forgetPrecision()
+                    try TrackingSpeed.set(back)
+                } else {
+                    UserDefaults.standard.set(speed, forKey: returnSpeedKey)
+                    try TrackingSpeed.set(TrackingSpeed.precision(from: speed))
+                }
+                return
+            }
             guard let dpi = state.dpi else { throw ActionError.unavailable("Precision Mode") }
             if let back = returnDPI, dpi.current == precisionDPI(from: back, in: dpi.supported) {
                 forgetPrecision()
@@ -103,6 +139,10 @@ enum MouseActions {
             }
         }
         behavior.isOn = { _ in
+            guard setsDPI else {
+                guard let back = returnSpeed else { return false }
+                return isPrecise(TrackingSpeed.current, returningTo: back)
+            }
             guard let dpi = state.dpi else { return nil }
             guard let back = returnDPI else { return false }
             return dpi.current == precisionDPI(from: back, in: dpi.supported)
@@ -113,20 +153,24 @@ enum MouseActions {
     // MARK: Free spin and haptics
 
     private static var freeSpin: ActionBehavior {
+        let missing = "This mouse can't spin its wheel freely"
         var behavior = ActionBehavior(isAvailable: available(HIDPPFeature.smartShift)) { _ in
-            guard let smartShift = state.smartShift else { throw ActionError.unavailable("Free Spin") }
+            guard let smartShift = state.smartShift else { throw ActionError.unavailable(missing) }
             state.setFreeSpin(!smartShift.freeSpin)
         }
         behavior.isOn = { _ in state.smartShift?.freeSpin }
+        behavior.unavailableMessage = missing
         return behavior
     }
 
     private static var haptics: ActionBehavior {
+        let missing = "This mouse has no haptics"
         var behavior = ActionBehavior(isAvailable: available(HIDPPFeature.haptic)) { _ in
-            guard let haptics = state.haptics else { throw ActionError.unavailable("Mouse Haptics") }
+            guard let haptics = state.haptics else { throw ActionError.unavailable(missing) }
             state.setHapticsEnabled(!haptics.enabled)
         }
         behavior.isOn = { _ in state.haptics?.enabled }
+        behavior.unavailableMessage = missing
         return behavior
     }
 
@@ -149,13 +193,14 @@ enum MouseActions {
 
     private static var easySwitch: ActionBehavior {
         var behavior = ActionBehavior(isAvailable: available(HIDPPFeature.changeHost))
+        behavior.unavailableMessage = "This mouse can't switch computers"
         behavior.choices = { _ in
             MouseLink.shared.mouse == nil ? [] : choices(for: state.hosts)
         }
         behavior.choose = { choice, _ in
             guard !choice.isCurrent else { return }
             guard MouseLink.shared.mouse != nil, let index = Int(choice.id.dropFirst("host".count)) else {
-                throw ActionError.unavailable("Easy-Switch")
+                throw ActionError.unavailable("This mouse can't switch computers")
             }
             state.switchHost(to: index)
             ActionFeedback.confirm("Mouse switching to \(choice.title)", symbol: "arrow.left.arrow.right.square")
@@ -178,10 +223,16 @@ enum MouseActions {
         return "battery.\(nearest)percent"
     }
 
+    /// The charge from HID++, or from macOS or Bluetooth for any other mouse.
+    private static var currentBattery: MouseState.Battery? {
+        state.battery ?? (MouseLink.shared.hasMouse ? nil : MouseBattery.shared.battery)
+    }
+
     private static var battery: ActionBehavior {
-        var behavior = ActionBehavior(isAvailable: available(HIDPPFeature.unifiedBattery))
-        behavior.liveDetail = { _ in state.battery.map(batteryDetail) }
-        behavior.liveSymbol = { _ in state.battery.map(batterySymbol) }
+        var behavior = ActionBehavior(isAvailable: { currentBattery != nil })
+        behavior.unavailableMessage = "No battery reading from this mouse"
+        behavior.liveDetail = { _ in currentBattery.map(batteryDetail) }
+        behavior.liveSymbol = { _ in currentBattery.map(batterySymbol) }
         return behavior
     }
 
@@ -247,6 +298,25 @@ enum MouseActions {
                 try ctx.expect(nextPreset(after: 200, in: range) == 800, "after 200")
                 try ctx.expect(precisionDPI(from: 1300, in: range) == 400 && precisionDPI(from: 900, in: range) == 300
                     && precisionDPI(from: 400, in: range) == 200, "precision speeds")
+            },
+            SelfTest.Case("mouse.trackingSpeedScale") { ctx in
+                for speed in TrackingSpeed.ticks {
+                    let back = TrackingSpeed.speed(forLevel: TrackingSpeed.level(of: speed))
+                    try ctx.expect(abs(back - speed) < 0.0001, "\(speed) → \(back)")
+                }
+                try ctx.expect(TrackingSpeed.level(of: -1) == 0 && TrackingSpeed.level(of: 5) == 1, "out of range")
+                try ctx.expect(TrackingSpeed.nextTick(after: 1) == 1.5 && TrackingSpeed.nextTick(after: 1.2) == 1.5, "next tick")
+                try ctx.expect(TrackingSpeed.nextTick(after: 3) == 0, "after 3 it starts over")
+                try ctx.expect(TrackingSpeed.precision(from: 3) == 0.5 && TrackingSpeed.precision(from: 0.9) == 0.3, "precision speeds")
+            },
+            SelfTest.Case("mouse.trackingSpeedWritesCurrentValue") { ctx in
+                let saved = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)?["com.apple.mouse.scaling"] as? Double
+                // Acceleration turned off reads as 0, and writing 0 would turn it back on.
+                if let saved, saved < 0 { try ctx.skip("mouse acceleration is off") }
+                let before = TrackingSpeed.current
+                ctx.note("tracking speed \(before)")
+                try TrackingSpeed.set(before)
+                try ctx.expect(abs(TrackingSpeed.current - before) < 0.0001, "now \(TrackingSpeed.current), was \(before)")
             },
             SelfTest.Case("mouse.wheelEvents") { ctx in
                 let saved = (MouseWheelEvents.countsPerNotch, MouseWheelEvents.thumbCountsPerNotch, MouseWheelEvents.thumbRightSign)

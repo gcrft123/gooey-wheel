@@ -69,7 +69,7 @@ final class ActionRunner {
         switch behavior.timing {
         case .now:
             guard behavior.isAvailable() else {
-                failed(item, ActionError.unavailable(item.title))
+                failed(item, ActionError.unavailable(behavior.unavailableMessage ?? item.title))
                 return false
             }
             if needsAccessibilityNow(item) { return false }

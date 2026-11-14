@@ -1,17 +1,60 @@
 import AppKit
 
+/// The mouse button that opens the wheel.
+enum ButtonAssignment: Equatable {
+    /// A button of a Logitech mouse, by HID++ control ID, read from the mouse itself.
+    case logitech(UInt16)
+    /// A button any mouse reports to macOS, by its number: 2 is the middle button.
+    case standard(Int)
+
+    /// The HID++ control ID, saved under `logitechKey` for compatibility with earlier versions.
+    private static let logitechKey = "button"
+    private static let standardKey = "mouseButton"
+
+    /// The assignment saved, or nil when the user hasn't assigned a button.
+    static var saved: ButtonAssignment? {
+        get {
+            let defaults = UserDefaults.standard
+            if let number = defaults.object(forKey: standardKey) as? Int { return .standard(number) }
+            if let control = defaults.object(forKey: logitechKey) as? Int { return .logitech(UInt16(truncatingIfNeeded: control)) }
+            return nil
+        }
+        set {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: standardKey)
+            defaults.removeObject(forKey: logitechKey)
+            switch newValue {
+            case .logitech(let control): defaults.set(Int(control), forKey: logitechKey)
+            case .standard(let number): defaults.set(number, forKey: standardKey)
+            case nil: break
+            }
+        }
+    }
+
+    var name: String {
+        switch self {
+        case .logitech(let control): return LogiButton.name(of: control) ?? "Assigned Button"
+        case .standard(let number): return MouseButtonTap.name(of: number)
+        }
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
-    /// The HID++ control ID of the button that opens the wheel.
-    private static let buttonKey = "button"
     /// Seconds Assign Button waits for a press.
     private static let captureTimeout: TimeInterval = 15
 
     private var controller: WheelController?
     private var statusItem: NSStatusItem?
-    /// Set between a press of the button and its release. The mouse can drop a release, which
-    /// `LogiButton` recovers at the next press.
+    /// Set between a press of the button and its release. A Logitech mouse can drop a release,
+    /// which `LogiButton` recovers at the next press.
     private var buttonHeld = false
-    private let button: LogiButton
+    /// Nil until the user assigns a button. Until then a Logitech mouse's thumb button opens the
+    /// wheel, on a mouse that has one.
+    private var assignment = ButtonAssignment.saved
+    /// Reads a Logitech mouse over HID++, for its buttons and for the mouse actions and haptics.
+    private let logitech: LogiButton
+    /// Reads a button of any mouse from macOS's events.
+    private let standard = MouseButtonTap()
     private var assignItem: NSMenuItem?
     private var hapticsItem: NSMenuItem?
     /// Shown while the app lacks Accessibility, which shortcuts, typing, and window actions need.
@@ -20,8 +63,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     init(options: LaunchOptions) {
         self.options = options
-        let saved = UserDefaults.standard.object(forKey: Self.buttonKey) as? Int
-        button = LogiButton(controlID: saved.map { UInt16(truncatingIfNeeded: $0) } ?? LogiButton.thumbPanel)
+        switch assignment {
+        case .logitech(let control): logitech = LogiButton(controlID: control)
+        case .standard: logitech = LogiButton(controlID: nil)
+        case nil: logitech = LogiButton(controlID: LogiButton.thumbPanel)
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -57,7 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         SymbolicHotKey.restoreInterrupted()
         TriggerDebug.wheelState = { [weak controller] in controller?.debugState ?? "" }
         TriggerDebug.start()
-        if options.thumbButton { startButton() }
+        if options.readsMouse { startButton() }
 
         // Open once at launch so there's something on screen, with how to summon it shown underneath.
         // The delay gives the mouse time to answer, so the hint names the right trigger.
@@ -68,12 +114,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         AutomationActions.restoreClipboard()
-        button.stop()
+        logitech.stop()
     }
 
     /// A quick press opens the wheel and leaves it open; holding keeps it open until release,
     /// which picks whatever the cursor is on. Pressing again while it's open closes it.
-    /// `missed` marks a release the mouse never reported, recovered at the next press.
+    /// `missed` marks a release a Logitech mouse never reported, recovered at the next press.
     private func buttonChanged(_ pressed: Bool, missed: Bool = false) {
         guard let controller else { return }
         if pressed {
@@ -101,10 +147,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func startButton() {
-        button.onChange = { [weak self] pressed in self?.buttonChanged(pressed) }
-        button.onMissedRelease = { [weak self] in self?.buttonChanged(false, missed: true) }
-        button.onStatus = { [weak self] _ in self?.updateButtonState() }
-        button.onNeedsRelaunch = {
+        logitech.onChange = { [weak self] pressed in self?.buttonChanged(pressed) }
+        logitech.onMissedRelease = { [weak self] in self?.buttonChanged(false, missed: true) }
+        logitech.onStatus = { [weak self] _ in self?.updateButtonState() }
+        logitech.onNeedsRelaunch = {
             guard Bundle.main.bundleURL.pathExtension == "app" else { return }
             let relaunch = Process()
             relaunch.executableURL = URL(fileURLWithPath: "/usr/bin/open")
@@ -112,8 +158,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             try? relaunch.run()
             NSApp.terminate(nil)
         }
-        MouseLink.shared.use(button)
-        button.start()
+        MouseLink.shared.use(logitech)
+        logitech.start()
+        standard.onChange = { [weak self] pressed in self?.buttonChanged(pressed) }
+        standard.onStatus = { [weak self] in self?.updateButtonState() }
+        if case .standard(let number) = assignment { standard.button = number }
         updateButtonState()
 
         // Other software can hand the button back to the mouse, so claim it again when the
@@ -121,35 +170,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.didWakeNotification] {
             center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self?.button.reassert() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self?.logitech.reassert() }
             }
         }
     }
 
-    private var buttonName: String {
-        button.controlID.flatMap(LogiButton.name(of:)) ?? "Assigned Button"
-    }
-
-    /// The menu's Assign Button item and the hint under the wheel at launch, from the mouse's state.
+    /// The menu's Assign Button item and the hint under the wheel at launch, from the state of
+    /// the assigned button.
     private func updateButtonState() {
         guard let controller, let item = assignItem else { return }
-        item.isHidden = !options.thumbButton
+        item.isHidden = !options.readsMouse
         item.title = "Assign Button"
         item.action = #selector(assignButton)
         item.isEnabled = true
-        switch button.status {
-        case .ready:
-            Self.setSubtitle(item, button.isCapturing ? "Press a mouse button…" : buttonName)
-            controller.hintText = "Press the \(buttonName.lowercased()) to open"
-        case .needsPermission:
-            item.title = "Allow Input Monitoring…"
-            Self.setSubtitle(item, nil)
-            item.action = #selector(openInputMonitoring)
-            controller.hintText = "Allow Input Monitoring to use your mouse"
-        case .searching:
-            Self.setSubtitle(item, button.canCapture ? "\(buttonName) not on this mouse" : "No mouse found")
-            item.isEnabled = button.canCapture
-            controller.hintText = "Open the wheel from the menu bar"
+        accessibilityItem?.isHidden = AXIsProcessTrusted()
+        let assignHint = "Assign a mouse button in the menu bar"
+        if waitingForPress {
+            Self.setSubtitle(item, "Press a mouse button…")
+            return
+        }
+        switch assignment {
+        case .standard(let number):
+            let name = MouseButtonTap.name(of: number)
+            if standard.isRunning {
+                Self.setSubtitle(item, name)
+                controller.hintText = "Press the \(name.lowercased()) to open"
+            } else {
+                // The tap needs Accessibility. This item asks for it, so the other doesn't.
+                item.title = "Allow Accessibility…"
+                Self.setSubtitle(item, name)
+                item.action = #selector(openAccessibility)
+                accessibilityItem?.isHidden = true
+                controller.hintText = "Allow Accessibility to use the \(name.lowercased())"
+            }
+        case .logitech, nil:
+            let name = assignment?.name ?? LogiButton.name(of: LogiButton.thumbPanel) ?? ""
+            switch logitech.status {
+            case .ready:
+                Self.setSubtitle(item, name)
+                controller.hintText = "Press the \(name.lowercased()) to open"
+            case .needsPermission:
+                item.title = "Allow Input Monitoring…"
+                Self.setSubtitle(item, nil)
+                item.action = #selector(openInputMonitoring)
+                controller.hintText = "Allow Input Monitoring to use your mouse"
+            case .searching:
+                // The thumb button is only a default for the mice that have one.
+                Self.setSubtitle(item, assignment == nil ? nil : "\(name) not found")
+                controller.hintText = assignHint
+            }
         }
     }
 
@@ -162,26 +231,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// Set while Assign Button waits for a press.
+    private var waitingForPress = false
+    private var captureTimer: Timer?
+
+    /// Waits for a press of any mouse button but the left and right ones and assigns it. A
+    /// Logitech mouse is asked for its buttons over HID++; any other button is read from
+    /// macOS's events, which needs Accessibility.
     @objc private func assignButton() {
         guard let controller else { return }
         // Choosing it again while it waits starts the wait over.
-        button.cancelCapture()
-        let screen = Self.pointerScreen()
-        if controller.isOpen { controller.dismiss() }
+        endCapture(nil)
         TriggerDebug.event("menu: Assign Button")
-        controller.announce(Toast.Message(text: "Press a mouse button", symbol: "computermouse", lasts: Self.captureTimeout), on: screen)
-        button.capturePress(timeout: Self.captureTimeout) { [weak self] control in
-            guard let self else { return }
-            defer { self.updateButtonState() }
-            guard let control else {
-                controller.withdrawAnnouncement()
-                return
+        let screen = Self.pointerScreen()
+        waitingForPress = true
+        let standardCaptures = standard.capturePress { [weak self] number in
+            self?.endCapture(number.map(ButtonAssignment.standard), on: screen)
+        }
+        if logitech.canCapture {
+            logitech.capturePress(timeout: Self.captureTimeout) { [weak self] control in
+                self?.endCapture(control.map(ButtonAssignment.logitech), on: screen)
             }
-            self.button.assign(control)
-            UserDefaults.standard.set(Int(control), forKey: Self.buttonKey)
-            controller.announce(Toast.Message(text: "\(self.buttonName) opens the wheel", symbol: "computermouse.fill"), on: screen)
+        }
+        guard standardCaptures || logitech.isCapturing else {
+            waitingForPress = false
+            openAccessibility()
+            return
+        }
+        if controller.isOpen { controller.dismiss() }
+        let text = standardCaptures ? "Press a mouse button" : "Press a button on \(logitech.mouseName ?? "the mouse")"
+        controller.announce(Toast.Message(text: text, symbol: "computermouse", lasts: Self.captureTimeout), on: screen)
+        captureTimer = Timer.scheduledTimer(withTimeInterval: Self.captureTimeout, repeats: false) { [weak self] _ in
+            self?.endCapture(nil, on: screen)
         }
         updateButtonState()
+    }
+
+    /// Stops waiting for a press, and assigns the button pressed, if any.
+    private func endCapture(_ pressed: ButtonAssignment?, on screen: NSScreen? = nil) {
+        guard waitingForPress else { return }
+        waitingForPress = false
+        captureTimer?.invalidate()
+        captureTimer = nil
+        // Whichever reader didn't catch the press stops waiting. Its completion comes back here
+        // with nil and finds nothing left to do.
+        logitech.cancelCapture()
+        standard.cancelCapture()
+        defer { updateButtonState() }
+        guard let controller else { return }
+        guard let pressed else {
+            controller.withdrawAnnouncement()
+            return
+        }
+        assign(pressed)
+        if let screen {
+            controller.announce(Toast.Message(text: "\(pressed.name) opens the wheel", symbol: "computermouse.fill"), on: screen)
+        }
+    }
+
+    private func assign(_ new: ButtonAssignment) {
+        assignment = new
+        ButtonAssignment.saved = new
+        switch new {
+        case .logitech(let control):
+            standard.button = nil
+            logitech.assign(control)
+        case .standard(let number):
+            logitech.assign(nil)
+            standard.button = number
+        }
     }
 
     @objc private func openInputMonitoring() {
@@ -252,7 +370,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
-        accessibilityItem?.isHidden = AXIsProcessTrusted()
         hapticsItem?.isHidden = !MouseHaptics.supported
         hapticsItem?.state = MouseHaptics.enabled ? .on : .off
         updateButtonState()
@@ -292,7 +409,7 @@ struct LaunchOptions {
     /// Keeps the wheel in this file instead of Application Support, for testing.
     var storePath: String?
     /// False leaves the mouse alone, for testing.
-    var thumbButton = true
+    var readsMouse = true
     /// Writes an image of each named moment of the demo into this folder, without showing
     /// anything on screen, and quits. A pattern limits it to some of the moments. A stretch
     /// of the script, as "from,to,rate", writes that stretch frame by frame instead.
@@ -320,7 +437,7 @@ struct LaunchOptions {
             case "--reduce-motion": reduceMotion = true
             case "--demo-root-count": demoRootCount = next.flatMap(Int.init); i += 1
             case "--store": storePath = next; i += 1
-            case "--no-thumb": thumbButton = false
+            case "--no-mouse", "--no-thumb": readsMouse = false
             case "--demo-marks": listDemoMarks = true
             case "--demo-stage-rect": printStageRect = true
             case "--demo-capture": demo = true; captureDirectory = next; i += 1

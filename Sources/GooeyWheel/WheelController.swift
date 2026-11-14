@@ -228,7 +228,7 @@ final class WheelController: NSObject {
 
     var isOpen: Bool { sim.phase == .open }
 
-    /// The wheel's state, for the thumb-button diagnostic's log.
+    /// The wheel's state, for the mouse-button diagnostic's log.
     var debugState: String {
         var parts = ["\(sim.phase)", "\(sim.mode)"]
         if sim.config.active { parts.append(sim.config.editor == nil ? "config" : "editor") }
