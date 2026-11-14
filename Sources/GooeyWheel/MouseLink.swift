@@ -72,6 +72,19 @@ final class MouseLink {
         }
         mouse.post(feature, function, params)
     }
+
+    /// Sends a request over the Bluetooth channel Logi Options+ uses, without waiting for an
+    /// answer, so the mouse goes on sending its notifications to Options+. Returns whether it was
+    /// sent: it isn't when the app hasn't found that channel, such as without Bluetooth permission.
+    @discardableResult
+    func postOverBluetooth(_ feature: UInt16, _ function: UInt8, _ params: [UInt8]) -> Bool {
+        guard let mouse, let index = mouse.features[feature], index != 0 else { return false }
+        if let interceptPosts {
+            interceptPosts(LogiLink.frame(feature: index, function: function, params: params))
+            return true
+        }
+        return mouse.postOverBluetooth(feature, function, params)
+    }
 }
 
 /// Movements of the mouse's wheels that reach this app as HID++ notifications.

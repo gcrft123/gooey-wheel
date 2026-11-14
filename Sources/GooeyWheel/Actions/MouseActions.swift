@@ -363,10 +363,25 @@ enum MouseActions {
                 try ctx.expect(state.haptics == before, "now \(String(describing: state.haptics)), was \(before)")
                 ctx.note("enabled \(before.enabled) level \(before.level)")
             },
+            SelfTest.Case("mouse.hapticWaveformChoice") { ctx in
+                // Waveforms 0 to 4 and 27 (whisper collision).
+                let all = MouseState.parseHapticWaveforms([0, 0, 0, 0, 0x08, 0x00, 0x00, 0x1F])
+                try ctx.expect(all == 0x0800_001F, "parsed \(String(describing: all))")
+                try ctx.expect(MouseState.parseHapticWaveforms([0, 0, 0, 0, 0, 0, 0, 0]) == nil, "an empty list is known")
+                try ctx.expect(MouseHaptics.Kind.hover.waveform(available: all) == .whisperCollision, "hover")
+                try ctx.expect(MouseHaptics.Kind.hover.waveform(available: 0x1F) == .subtleCollision, "hover without whisper")
+                try ctx.expect(MouseHaptics.Kind.open.waveform(available: 0x01) == .sharpStateChange, "open with only sharp")
+                try ctx.expect(MouseHaptics.Kind.back.waveform(available: 0x01) == nil, "back with nothing fitting")
+                for kind in MouseHaptics.Kind.allCases {
+                    try ctx.expect(kind.waveform(available: nil) == kind.waveforms.first, "\(kind) with the list unknown")
+                }
+            },
             SelfTest.Case("mouse.hapticTick") { ctx in
                 let mouse = try connect(ctx)
                 guard let haptics = state.haptics else { try ctx.skip("no haptics") }
                 guard haptics.enabled else { try ctx.skip("haptics are turned off on the mouse") }
+                guard MouseHaptics.enabled else { try ctx.skip("Mouse Haptic Feedback is turned off in the menu") }
+                ctx.note("waveforms \(state.hapticWaveforms.map { String($0, radix: 16) } ?? "unknown")")
                 ctx.wait(upTo: 2, until: { !mouse.isBusy })
                 // One tick, the faintest waveform.
                 let start = DispatchTime.now().uptimeNanoseconds
@@ -374,6 +389,21 @@ enum MouseActions {
                 ctx.note(String(format: "sending took %.1f ms", Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000))
                 try ctx.expect(!MouseHaptics.play(.hover), "a second tick within 40 ms was sent")
                 // The mouse still answers requests after it.
+                var answered = false
+                MouseLink.shared.call(HIDPPFeature.haptic, 1) { answered = $0 != nil }
+                try ctx.expect(ctx.wait(upTo: 2, until: { answered }), "the mouse stopped answering after the tick")
+            },
+            SelfTest.Case("mouse.hapticTickOverBluetooth") { ctx in
+                _ = try connect(ctx)
+                guard let haptics = state.haptics, haptics.enabled else { try ctx.skip("no haptics, or turned off on the mouse") }
+                guard MouseHaptics.enabled else { try ctx.skip("Mouse Haptic Feedback is turned off in the menu") }
+                // The Bluetooth channel is found a moment after the mouse.
+                var sent = false
+                ctx.wait(upTo: 3, until: {
+                    sent = MouseHaptics.play(.hover, over: .bluetooth)
+                    return sent
+                })
+                try ctx.expect(sent, "no tick sent; is Bluetooth allowed?")
                 var answered = false
                 MouseLink.shared.call(HIDPPFeature.haptic, 1) { answered = $0 != nil }
                 try ctx.expect(ctx.wait(upTo: 2, until: { answered }), "the mouse stopped answering after the tick")

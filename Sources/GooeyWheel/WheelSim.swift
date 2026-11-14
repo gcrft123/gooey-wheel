@@ -62,6 +62,12 @@ final class WheelSim {
     var onChoose: ((LiveChoice, WheelItem) -> Void)?
     /// A level crossed a detent, or a stepper stepped: the moment for a haptic tick.
     var onDetent: (() -> Void)?
+    /// A slider reached its end.
+    var onLimit: (() -> Void)?
+    /// A ring opened from a bubble: a folder, a picker, a slider's bar, or an item's edit options.
+    var onEnter: (() -> Void)?
+    /// The active ring closed back to its parent.
+    var onBack: (() -> Void)?
     /// Something chosen can't be done here.
     var onRefuse: (() -> Void)?
 
@@ -357,6 +363,7 @@ final class WheelSim {
         spawn(child, delay: 0.05)
         // The new ring's items show their state from their first frame.
         refreshLive()
+        onEnter?()
     }
 
     func back() {
@@ -393,6 +400,7 @@ final class WheelSim {
         armed = !child.isControl
         armOrigin = cursor
         resetLabel()
+        onBack?()
     }
 
     func bury(_ level: Level) {
