@@ -29,8 +29,8 @@ final class IconEditor: EditorContent {
         scroll.hasVerticalScroller = false
         scroll.documentView = grid
         addSubview(scroll)
-        // The grid reaches the panel's bottom edge, where the back and save buttons are.
-        scroll.fadeEdges(clearance: EditorTheme.cutout)
+        // The grid runs down beside the back and save buttons and fades out above the panel's edge.
+        scroll.fadeEdges()
 
         grid.width = scroll.frame.width
         grid.defaultSymbol = defaultSymbol
@@ -78,8 +78,8 @@ final class IconEditor: EditorContent {
 /// highlight follows the pointer and one marks the chosen symbol; both glide between cells.
 private final class SymbolGrid: NSView, EditorAnimated {
     static let cell: CGFloat = 52
-    /// Space under the last row, so it can scroll to rest clear of the fade above the panel's buttons.
-    static let bottomInset: CGFloat = EditorTheme.cutout + NSScrollView.fadeLength
+    /// Space under the last row, so it can scroll to rest above the panel's buttons.
+    static let bottomInset: CGFloat = EditorTheme.cutout
 
     var names: [String] = [] {
         didSet {
@@ -148,8 +148,8 @@ private final class SymbolGrid: NSView, EditorAnimated {
         scrollToVisible(clear(rect(index)))
     }
 
-    /// A cell's frame with room around it, so scrolling it into view leaves it above the fade
-    /// over the panel's buttons, not in it.
+    /// A cell's frame with room around it, so scrolling it into view leaves it above the
+    /// panel's buttons, not beside them.
     private func clear(_ cell: CGRect) -> CGRect {
         CGRect(x: cell.minX, y: cell.minY - 8, width: cell.width, height: cell.height + 8 + Self.bottomInset)
     }
@@ -175,12 +175,12 @@ private final class SymbolGrid: NSView, EditorAnimated {
     }
 
     func tick(_ dt: Double, pointer: CGPoint?) {
-        enclosingScrollView?.fadeEdges(clearance: EditorTheme.cutout)
+        enclosingScrollView?.fadeEdges()
         var under: Int?
         if let pointer, let visible = enclosingScrollView?.contentView.bounds {
             let local = convert(pointer, from: nil)
-            // Only where cells are in clear view, above the fade over the panel's buttons.
-            if local.y >= visible.minY, local.y <= visible.maxY - EditorTheme.cutout { under = index(at: local) }
+            // Only where cells are in clear view, above the fade.
+            if local.y >= visible.minY, local.y <= visible.maxY - NSScrollView.fadeStart { under = index(at: local) }
         }
         if let under, names[under] != chosen {
             hover.show(at: tile(under))

@@ -26,8 +26,9 @@ final class EditorList: NSView, EditorAnimated {
     var onChoose: ((String) -> Void)?
     var onToggle: ((String) -> Void)?
 
-    /// How far above this list's bottom edge the panel's corner buttons begin. Rows fade out
-    /// before they reach that line, and the last row can scroll to rest clear of the fade.
+    /// How far above this list's bottom edge the panel's corner buttons begin. Rows run on
+    /// past that line toward the panel's edge, fading, and the last row can scroll to rest
+    /// above it.
     var clearance: CGFloat = 0 {
         didSet { needsLayout = true }
     }
@@ -76,7 +77,7 @@ final class EditorList: NSView, EditorAnimated {
     private var glide: Spring?
 
     private var rowHeight: CGFloat { EditorTheme.rowHeight }
-    private var bottomInset: CGFloat { clearance + NSScrollView.fadeLength }
+    private var bottomInset: CGFloat { clearance }
 
     init(theme: EditorTheme) {
         self.theme = theme
@@ -168,7 +169,7 @@ final class EditorList: NSView, EditorAnimated {
     override func layout() {
         super.layout()
         scroll.frame = bounds
-        scroll.fadeEdges(clearance: clearance)
+        scroll.fadeEdges()
         resizeDocument()
         // A row asked for before the list had a size is shown now that it has one.
         if let pending = pendingReveal, bounds.height > 0 {
@@ -290,7 +291,7 @@ final class EditorList: NSView, EditorAnimated {
                 glide = done ? nil : spring
             }
         }
-        scroll.fadeEdges(clearance: clearance)
+        scroll.fadeEdges()
         var moving = glide != nil
         for item in items {
             item.y.step(dt)
@@ -309,7 +310,7 @@ final class EditorList: NSView, EditorAnimated {
         if let pointer {
             let local = canvas.convert(pointer, from: nil)
             let visible = scroll.contentView.bounds
-            if local.x >= 0, local.x <= canvas.bounds.width, local.y >= visible.minY, local.y <= visible.maxY - clearance {
+            if local.x >= 0, local.x <= canvas.bounds.width, local.y >= visible.minY, local.y <= visible.maxY - NSScrollView.fadeStart {
                 under = row(at: local)
             }
             if lastPointer.map({ hypot($0.x - pointer.x, $0.y - pointer.y) > 0.5 }) ?? true, under != nil { keyRow = nil }

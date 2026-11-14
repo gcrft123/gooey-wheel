@@ -42,7 +42,8 @@ final class ActionEditor: EditorContent {
         rule.layer?.backgroundColor = theme.hairline.cgColor
         addSubview(rule)
 
-        pane.frame = CGRect(x: rule.frame.maxX + 18, y: pad, width: bounds.width - rule.frame.maxX - 18 - pad, height: bounds.height - 2 * pad)
+        // Down to the panel's bottom edge, like the list on the left, for a setting that lists things.
+        pane.frame = CGRect(x: rule.frame.maxX + 18, y: pad, width: bounds.width - rule.frame.maxX - 18 - pad, height: bounds.height - pad)
         addSubview(pane)
         pane.addSubview(preview)
 
@@ -112,7 +113,7 @@ final class ActionEditor: EditorContent {
         guard let kind = action?.parameter else {
             // Nothing to set: the bubble itself, large, is all there is to show.
             preview.large = true
-            preview.frame = pane.bounds
+            preview.frame = CGRect(x: 0, y: 0, width: pane.bounds.width, height: pane.bounds.height - EditorTheme.padding)
             return
         }
         preview.large = false
@@ -120,9 +121,9 @@ final class ActionEditor: EditorContent {
         let heading = EditorTheme.fieldHeight
         preview.frame = CGRect(x: 0, y: 0, width: pane.bounds.width, height: heading)
         let view = ParameterView.make(kind, value: draft.argument, theme: theme)
-        // A setting ends above the line where the save button's corner begins, so nothing in
-        // it is ever under that button.
-        let floor = pane.bounds.height - (EditorTheme.cutout - EditorTheme.padding) - 6
+        // A list runs to the panel's edge. Any other setting ends above the line where the save
+        // button's corner begins, so nothing in it is ever under that button.
+        let floor = view.reachesPanelEdge ? pane.bounds.height : pane.bounds.height - EditorTheme.cutout - 6
         view.frame = CGRect(x: 0, y: heading + 10, width: pane.bounds.width, height: floor - heading - 10)
         view.onChange = { [weak self] value in
             self?.draft.argument = value

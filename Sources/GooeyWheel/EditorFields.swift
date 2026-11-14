@@ -1,19 +1,22 @@
 import AppKit
 
 extension NSScrollView {
-    static let fadeLength: CGFloat = 22
+    /// Room between a panel's bottom edge and the scrolling contents, as at its sides.
+    static let bottomSpace: CGFloat = EditorTheme.padding
+    static let fadeLength: CGFloat = 28
+    /// How far above the bottom edge the contents start to fade.
+    static var fadeStart: CGFloat { bottomSpace + fadeLength }
 
-    /// Fades the scrolling contents out toward the bottom, so that nothing is ever cut off by
-    /// the panel's corner buttons: the contents are gone `clearance` above the bottom edge,
-    /// which is where those buttons begin. Once scrolled, the top fades too, so rows slide
-    /// out of sight under the field above instead of being sliced by it. Call again when the
-    /// view's size or scroll position changes.
-    func fadeEdges(clearance: CGFloat) {
+    /// Fades the scrolling contents out toward the bottom, so they are gone `bottomSpace`
+    /// above the panel's edge, beside the buttons in its corners. Once scrolled, the top fades
+    /// too, so rows slide out of sight under the field above instead of being sliced by it.
+    /// Call again when the view's size or scroll position changes.
+    func fadeEdges() {
         wantsLayer = true
         let mask = (layer?.mask as? CAGradientLayer) ?? CAGradientLayer()
         let h = max(bounds.height, 1)
         let top = min(max(contentView.bounds.minY, 0), 16)
-        let key = "\(Int(h))-\(Int(clearance))-\(Int(top * 2))"
+        let key = "\(Int(h))-\(Int(top * 2))"
         guard mask.name != key else { return }
         mask.name = key
         CATransaction.begin()
@@ -25,8 +28,9 @@ extension NSScrollView {
         // A scroll view's layer runs top-down.
         mask.startPoint = CGPoint(x: 0.5, y: 0)
         mask.endPoint = CGPoint(x: 0.5, y: 1)
-        let gone = max(1 - clearance / h, 0)
-        mask.locations = [0, NSNumber(value: Double(top / h)), NSNumber(value: Double(max(gone - Self.fadeLength / h, 0))), NSNumber(value: Double(gone)), 1]
+        let gone = max(1 - Self.bottomSpace / h, 0)
+        let fade = max(1 - Self.fadeStart / h, 0)
+        mask.locations = [0, NSNumber(value: Double(top / h)), NSNumber(value: Double(fade)), NSNumber(value: Double(gone)), 1]
         layer?.mask = mask
         CATransaction.commit()
     }

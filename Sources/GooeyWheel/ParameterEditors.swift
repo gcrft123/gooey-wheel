@@ -17,6 +17,10 @@ class ParameterView: NSView {
 
     override var isFlipped: Bool { true }
 
+    /// A list runs down to the panel's bottom edge, around its buttons. Other controls end
+    /// above the buttons.
+    var reachesPanelEdge: Bool { false }
+
     func focus() {}
 
     /// A point in this control for the demo's cursor, in the window's coordinates: `x` and
@@ -56,10 +60,13 @@ private final class AppPicker: ParameterView {
         picker.onReturn = { [weak self] in self?.onReturn?() }
         picker.list.onChoose = { [weak self] in self?.onChange?($0) }
         picker.list.chosen = value
+        picker.list.clearance = EditorTheme.cutout
         addSubview(picker)
         show(matching: "")
         picker.list.reveal(value)
     }
+
+    override var reachesPanelEdge: Bool { true }
 
     required init?(coder: NSCoder) { fatalError() }
 
@@ -94,6 +101,7 @@ private final class ShortcutPicker: ParameterView {
         picker.onReturn = { [weak self] in self?.onReturn?() }
         picker.list.onChoose = { [weak self] in self?.onChange?($0) }
         picker.list.chosen = value
+        picker.list.clearance = EditorTheme.cutout
         addSubview(picker)
         // A shortcut that was set stays listed while the rest load, and if it has since been deleted.
         names = value.map { [$0] } ?? []
@@ -115,6 +123,8 @@ private final class ShortcutPicker: ParameterView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    override var reachesPanelEdge: Bool { true }
 
     private static func list() -> [String] {
         // The scripted demo shows made-up names in place of this Mac's shortcuts.
