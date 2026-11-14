@@ -34,13 +34,8 @@ final class WelcomeGoo: NSView {
 
     private let renderer: GooRenderer?
     private let gooView: GooView?
-    /// What clips the content: the panel's body as a shape, and a small image over each bottom
-    /// corner, drawn from the same distance field the goo's shader draws.
-    private let contentMask = CALayer()
-    private let maskBody = CAShapeLayer()
-    private let maskCorners = [CALayer(), CALayer()]
-    /// The side of a corner image, enough for a cutout and its shoulders.
-    private static let cornerTile = 120.0
+    /// Clips the content to the panel as the goo draws it, cutouts included.
+    private let mask = PanelMask()
     private let marks = [CALayer(), CALayer()]
     private var link: CADisplayLink?
     private var lastTimestamp: CFTimeInterval = 0
@@ -53,7 +48,6 @@ final class WelcomeGoo: NSView {
     private var press: Side?
     /// Seconds since the panel came up.
     private var age = 0.0
-    private var maskKey: [Double] = []
 
     // The way in: a hub pops up and throws out a ring of eight bubbles, as the wheel does when
     // it opens. The bubbles turn yellow and fall back into the hub, which swallows each with a
@@ -125,10 +119,7 @@ final class WelcomeGoo: NSView {
             addSubview(gooView)
         }
         content.wantsLayer = true
-        contentMask.frame = content.bounds
-        contentMask.addSublayer(maskBody)
-        for corner in maskCorners { contentMask.addSublayer(corner) }
-        content.layer?.mask = contentMask
+        content.layer?.mask = mask.layer
         addSubview(content)
         for (index, mark) in marks.enumerated() {
             mark.mask = Self.symbol(index == 0 ? "chevron.left" : nextMark.rawValue)
@@ -520,79 +511,10 @@ final class WelcomeGoo: NSView {
         return out
     }
 
-    /// Clips the content to the goo panel itself. Away from the bottom corners that is a
-    /// rounded rectangle. At each corner with a cutout, the mask is an image of the panel's
-    /// distance field, the one the shader draws, so the content follows the cutout and its
-    /// soft shoulders exactly, while it opens and when the button leans.
     private func updateMask() {
-        guard let panel = panelBlob() else {
-            maskBody.path = nil
-            for corner in maskCorners { corner.contents = nil }
-            return
-        }
-        let cuts = [panel.cutoutLeft, panel.cutoutRight]
-        var key: [Double] = [panel.half.x, panel.half.y, panel.corner]
-        for cut in cuts { key += [cut?.center.x ?? 0, cut?.center.y ?? 0, cut?.radius ?? 0] }
-        guard key.count != maskKey.count || zip(key, maskKey).contains(where: { abs($0 - $1) > 0.02 }) else { return }
-        maskKey = key
-
-        // The body, in the content's coordinates, y up.
-        let origin = CGPoint(x: panelFrame.width / 2 - panel.half.x, y: panelFrame.height / 2 - panel.half.y)
-        let body = CGRect(x: origin.x, y: origin.y, width: 2 * panel.half.x, height: 2 * panel.half.y)
-        var path: CGPath = CGPath(roundedRect: body, cornerWidth: panel.corner, cornerHeight: panel.corner, transform: nil)
-        let scale = window?.backingScaleFactor ?? 2
-        let tile = min(Self.cornerTile, panel.half.x, panel.half.y)
-        for (index, cut) in cuts.enumerated() {
-            let layer = maskCorners[index]
-            guard cut != nil, tile > 1 else {
-                layer.contents = nil
-                continue
-            }
-            let frame = CGRect(x: index == 0 ? body.minX : body.maxX - tile, y: body.minY, width: tile, height: tile)
-            path = path.subtracting(CGPath(rect: frame, transform: nil))
-            layer.frame = frame
-            layer.contentsScale = scale
-            // The tile's top-left corner in the goo's coordinates.
-            let topLeft = V2(Double(panelFrame.minX + frame.minX), Double(bounds.height - panelFrame.minY - frame.maxY))
-            layer.contents = Self.coverage(of: panel, from: topLeft, side: tile, scale: Double(scale))
-        }
-        maskBody.path = path
-    }
-
-    /// An alpha image of how much of each pixel is inside `blob`, over a square of the goo's space.
-    private static func coverage(of blob: Blob, from topLeft: V2, side: Double, scale: Double) -> CGImage? {
-        let n = Int((side * scale).rounded(.up))
-        var pixels = [UInt8](repeating: 0, count: n * n)
-        for y in 0..<n {
-            for x in 0..<n {
-                let p = topLeft + V2(Double(x) + 0.5, Double(y) + 0.5) / scale
-                pixels[y * n + x] = UInt8(clamp01(0.5 - distance(p, to: blob) * scale) * 255)
-            }
-        }
-        return pixels.withUnsafeMutableBytes { bytes in
-            CGContext(data: bytes.baseAddress, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue)?.makeImage()
-        }
-    }
-
-    /// A blob's signed distance at `p`: a rounded box less its corner cutouts, as `sd_blob`
-    /// in the goo's shader computes it.
-    private static func distance(_ p: V2, to b: Blob) -> Double {
-        let local = p - b.center
-        let r = local.y > 0 ? b.cornerBottom ?? b.corner : b.corner
-        let q = simd_abs(local) - b.half + V2(r, r)
-        var d = simd_length(simd_max(q, V2(0, 0))) + min(max(q.x, q.y), 0) - r
-        for (cut, side) in [(b.cutoutLeft, -1.0), (b.cutoutRight, 1.0)] {
-            guard let cut, cut.radius >= 0.05 else { continue }
-            let c = p - cut.center
-            let u = V2(side * c.x, c.y)
-            let quad = u.x > 0 && u.y > 0 ? -min(u.x, u.y) : simd_length(simd_min(u, V2(0, 0)))
-            let hole = min(simd_length(c) - cut.radius, quad)
-            // The shader's smooth maximum, which makes the shoulders.
-            let soft = min(20, cut.radius * 0.5)
-            let h = clamp01(0.5 - 0.5 * (hole + d) / soft)
-            d = d + (-hole - d) * h + soft * h * (1 - h)
-        }
-        return d
+        // The content's top-left corner in the goo's coordinates, which run top-down.
+        let origin = V2(Double(panelFrame.minX), Double(bounds.height - panelFrame.maxY))
+        mask.update(panel: panelBlob(), origin: origin, size: panelFrame.size, scale: window?.backingScaleFactor ?? 2)
     }
 
     /// A quiet glyph at rest, and the fill's contrasting color once the button fills under the
