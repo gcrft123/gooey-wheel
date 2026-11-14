@@ -3,7 +3,7 @@ import Sparkle
 
 /// Checks the appcast published with each GitHub release, through Sparkle, and installs the
 /// updates it lists. Sparkle asks on the second launch whether to check automatically.
-final class Updater: NSObject, SPUStandardUserDriverDelegate {
+final class Updater: NSObject, SPUStandardUserDriverDelegate, NSMenuItemValidation {
     private var controller: SPUStandardUpdaterController!
     /// The menu item that checks for updates. It reads "Update Available…" while a scheduled
     /// check has found an update the user hasn't looked at yet.
@@ -29,14 +29,21 @@ final class Updater: NSObject, SPUStandardUserDriverDelegate {
         controller.checkForUpdates(nil)
     }
 
+    /// Sparkle can't start a check while it is fetching the feed or downloading an update.
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        controller.updater.canCheckForUpdates
+    }
+
     // MARK: SPUStandardUserDriverDelegate
 
     /// An update found by a scheduled check shows in the menu instead of opening a window over
     /// whatever the user is doing.
     var supportsGentleScheduledUpdateReminders: Bool { true }
 
+    /// Sparkle offers immediate focus for the first seconds after launch, when the wheel opens.
+    /// Declining it keeps every scheduled update in the menu. Checks the user starts aren't asked.
     func standardUserDriverShouldHandleShowingScheduledUpdate(_ update: SUAppcastItem, andInImmediateFocus immediateFocus: Bool) -> Bool {
-        immediateFocus
+        false
     }
 
     func standardUserDriverWillHandleShowingUpdate(_ handleShowingUpdate: Bool, forUpdate update: SUAppcastItem, state: SPUUserUpdateState) {

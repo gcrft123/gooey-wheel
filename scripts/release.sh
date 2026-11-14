@@ -35,13 +35,29 @@ if [[ -z $dry_run ]]; then
   [[ -z $(git status --porcelain) ]] || fail "Commit or set aside the changes in the working tree first."
   git fetch -q origin
   git merge-base --is-ancestor HEAD origin/main || fail "HEAD isn't on origin/main. Merge and push it first."
-  ! gh release view $tag --repo $repo >/dev/null 2>&1 || fail "$tag is already released."
+  if draft=$(gh release view $tag --repo $repo --json isDraft --jq .isDraft 2>/dev/null); then
+    [[ $draft == true ]] && fail "$tag is a draft left by a run that didn't finish. Remove it with gh release delete $tag --repo $repo --cleanup-tag, then run this again."
+    fail "$tag is already released."
+  fi
 fi
+
+# The latest release, whose appcast the new one extends. Empty before the first release.
+latest=$(gh release list --repo $repo --limit 1 --exclude-drafts --exclude-pre-releases --json tagName --jq '.[].tagName') ||
+  fail "Couldn't list the releases of $repo."
 
 out=build/release/$version
 feed=$out/feed
 rm -rf $out
 mkdir -p $feed
+
+# Sparkle offers a version only when its build number, the commit count, is higher.
+build=$(git rev-list --count HEAD)
+if [[ -n $latest ]]; then
+  gh release download $latest --repo $repo --pattern appcast.xml --dir $feed
+  newest=$(grep -o '<sparkle:version>[0-9]*' $feed/appcast.xml | grep -o '[0-9]*$' | sort -n | tail -1) ||
+    fail "The appcast of $latest lists no versions."
+  (( build > newest )) || fail "Build $build isn't newer than build $newest in $latest."
+fi
 
 GOOEY_VERSION=$version GOOEY_SIGN_IDENTITY="Developer ID Application" ./scripts/build-app.sh
 
@@ -63,18 +79,10 @@ else
   fail "There's no notarytool profile named $profile. Make one with xcrun notarytool store-credentials $profile, or set GOOEY_SKIP_NOTARIZE=1."
 fi
 
-build=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$app/Contents/Info.plist")
 archive=$feed/Gooey-Wheel-$version.zip
 ditto -c -k --sequesterRsrc --keepParent "$app" $archive
 # generate_appcast embeds the notes file named like the archive. The title stays out of it.
 tail -n +2 "$notes" | sed '/./,$!d' > $feed/Gooey-Wheel-$version.md
-
-# The appcast of the latest release, so the new one keeps listing the earlier versions.
-if [[ -n $(gh release list --repo $repo --limit 1 --exclude-drafts --exclude-pre-releases) ]]; then
-  gh release download --repo $repo --pattern appcast.xml --dir $feed
-  newest=$(grep -o '<sparkle:version>[0-9]*' $feed/appcast.xml | grep -o '[0-9]*$' | sort -n | tail -1)
-  (( build > ${newest:-0} )) || fail "Build $build isn't newer than build $newest in the latest release."
-fi
 
 sparkle=(.build/artifacts/*/Sparkle/bin(N))
 (( $#sparkle )) || fail "Sparkle's tools aren't in .build/artifacts."
@@ -90,6 +98,10 @@ $sparkle[1]/generate_appcast \
   --embed-release-notes \
   --maximum-deltas 0 \
   $feed
+# generate_appcast leaves the signature out, and still succeeds, when the key doesn't match
+# SUPublicEDKey in the app.
+grep -q "Gooey-Wheel-$version.zip\".*sparkle:edSignature=" $feed/appcast.xml ||
+  fail "The appcast has no EdDSA signature for $version. Check that the key under $key_account matches SUPublicEDKey."
 
 if [[ -n $dry_run ]]; then
   echo "Dry run. Would publish $tag ($title) with:"

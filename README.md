@@ -13,13 +13,13 @@ open "build/Gooey Wheel.app"
 
 Requires macOS 14 or later and the Swift toolchain from Xcode. The app has a menu bar item and no Dock icon.
 
-The menu bar item has Open Wheel, Assign Button, Customize Wheel, Haptic Feedback, Check for Updates, and Quit Gooey Wheel. Assign Button shows the mouse button that opens the wheel; choosing it waits up to 15 seconds for a press and assigns whichever button is pressed, other than the left and right buttons. Customize Wheel opens the wheel in configuration. Haptic Feedback, shown only for a mouse with a haptic motor the app can drive, turns the wheel's taps through the mouse on or off.
+The menu bar item has Open Wheel, Assign Button, Customize Wheel, Haptic Feedback, Check for Updates…, and Quit Gooey Wheel. Assign Button shows the mouse button that opens the wheel; choosing it waits up to 15 seconds for a press and assigns whichever button is pressed, other than the left and right buttons. Customize Wheel opens the wheel in configuration. Haptic Feedback, shown only for a mouse with a haptic motor the app can drive, turns the wheel's taps through the mouse on or off.
 
 ## Updates
 
-The app updates itself from this repository's GitHub releases, through [Sparkle](https://sparkle-project.org). On the second launch Sparkle asks whether to check automatically, and then checks once a day. An update found by an automatic check doesn't open a window: the menu bar item's Check for Updates reads "Update Available…" with the new version under it, and choosing it shows the release notes and installs. Check for Updates checks at once.
+The app updates itself from this repository's GitHub releases, through [Sparkle](https://sparkle-project.org). On the second launch Sparkle asks whether to check automatically, and then checks once a day. An update found by an automatic check doesn't open a window. Check for Updates… in the menu bar item reads "Update Available…" instead, with the new version under it on macOS 14.4 and later, and choosing it shows the release notes and installs. Otherwise Check for Updates… checks at once. It's dimmed while Sparkle is already checking or downloading.
 
-The feed is `appcast.xml` on the latest release, at `https://github.com/gcrft123/gooey-wheel/releases/latest/download/appcast.xml`. Sparkle installs an update only if its archive carries an EdDSA signature made with the key whose public half is `SUPublicEDKey` in the app's Info.plist. GitHub serves release files only for a public repository.
+The feed is `appcast.xml` on the latest release, at `https://github.com/gcrft123/gooey-wheel/releases/latest/download/appcast.xml`. Each archive in the appcast carries an EdDSA signature made with the key whose public half is `SUPublicEDKey` in the app's Info.plist, and the release script refuses to publish one without it. GitHub serves release files only for a public repository. Releases are built for Apple silicon only.
 
 ## Use
 
@@ -188,7 +188,7 @@ The script builds the app signed with the Developer ID Application certificate, 
 
 `notes.md` starts with the release's title as a heading, `# v1.2.0: What changed`. The rest is the release notes, shown on the GitHub release and, as Markdown, in the app's update window. `--dry-run` after the notes stops before publishing, leaving the files in `build/release/1.2.0/feed`.
 
-The version users see comes from the argument. The build number Sparkle compares is the number of commits on `HEAD`, so a release has to be cut from `main`, and the script refuses one that isn't newer than the latest release. `scripts/build-app.sh` takes the version from `GOOEY_VERSION`, or the newest `v*` tag, and the certificate from `GOOEY_SIGN_IDENTITY`.
+The version users see comes from the argument. The build number Sparkle compares is the number of commits on `HEAD`, so a release has to be cut from `main`, and the script refuses one that isn't newer than the latest release before it builds anything. A run that fails after creating the draft leaves it in place, and the next run says how to remove it. `scripts/build-app.sh` takes the version from `GOOEY_VERSION`, or the newest `v*` tag, and the certificate from `GOOEY_SIGN_IDENTITY`.
 
 It needs:
 
