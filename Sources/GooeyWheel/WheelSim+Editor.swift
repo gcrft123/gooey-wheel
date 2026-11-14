@@ -289,10 +289,16 @@ extension WheelSim {
             if e.halfW.value < 0.5 { config.editor = nil }
             return
         }
-        guard e.closing, e.open.value < 0.06 else { return }
+        guard e.closing else { return }
+        let slot = level?.slot(of: e.anchor)
+        // Once it has the bubble's size and place it is the bubble again, so it gets its icon back
+        // without waiting out the rest of the springs.
+        let home = slot != nil && abs(e.halfW.value - r) < 3 && abs(e.halfH.value - r) < 3
+            && simd_distance(e.pos.value, e.pos.target) < 8
+        guard home || e.open.value < 0.06 else { return }
         // The panel is a bubble again. Hand it back to its ring.
         config.editor = nil
-        guard let level, let slot = level.slot(of: e.anchor) else { return }
+        guard let level, let slot else { return }
         let b = addBubble(level.entries[slot], slot: slot, level: level, at: time)
         b.active = true
         b.pos.snap(e.pos.value)
@@ -311,9 +317,13 @@ extension WheelSim {
     }
 
     /// Where a button waits inside the panel before it comes out, and where it goes back to.
+    /// It stays inside the panel as the panel shrinks, so a closing panel takes its buttons in
+    /// instead of leaving them outside it.
     private func buttonOrigin(_ e: EditorState, side: Double) -> V2 {
         let rest = buttonRest(e, side: side)
-        return e.shape.notched ? rest + V2(-side, -1) * 44 : rest + V2(-side * (2 * tuning.bubbleRadius + Self.panelButtonGap), 0)
+        let origin = e.shape.notched ? rest + V2(-side, -1) * 44 : rest + V2(-side * (2 * tuning.bubbleRadius + Self.panelButtonGap), 0)
+        let room = simd_max(V2(e.halfW.value, e.halfH.value) - tuning.bubbleRadius, V2(0, 0))
+        return e.pos.value + simd_clamp(origin - e.pos.value, -room, room)
     }
 
     private func stepButton(_ button: inout PanelButton, in e: EditorState, side: Double, shown: Bool, hit: EditorHit, _ dt: Double) {
@@ -352,7 +362,8 @@ extension WheelSim {
             button.pos.config = t.retractPos
             button.pos.target = origin
             button.radius.config = t.radiusLeave
-            button.radius.target = left < 5 ? -3 : t.bubbleRadius * clamp01(left / max(travel, 1))
+            // A closing panel takes its buttons in as it goes.
+            button.radius.target = left < 5 || e.closing ? -3 : t.bubbleRadius * clamp01(left / max(travel, 1))
             button.tint.target = 0
         }
         button.out.target = shown ? 1 : 0
@@ -384,9 +395,11 @@ extension WheelSim {
         let origin = buttonOrigin(e, side: side)
         let travel = max(simd_distance(buttonRest(e, side: side), origin), 1)
         let along = simd_distance(button.pos.value, origin) / travel
+        // A closing panel's marks go with its contents, before it has shrunk much.
+        let closing = e.closing ? smooth01((e.open.value - 0.62) / 0.3) : 1
         return ButtonMark(
             center: button.pos.value, scale: button.radius.value / tuning.bubbleRadius,
-            tint: clamp01(button.tint.value), opacity: smooth01((along - 0.6) / 0.3)
+            tint: clamp01(button.tint.value), opacity: smooth01((along - 0.6) / 0.3) * closing
         )
     }
 
