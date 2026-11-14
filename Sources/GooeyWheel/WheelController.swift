@@ -77,10 +77,6 @@ final class WheelController: NSObject {
             sim.hintHalfWidth = layers.hintWidth() / 2 + 14
         }
     }
-    var parentStyle: ParentStyle {
-        get { sim.parentStyle }
-        set { sim.parentStyle = newValue }
-    }
 
     init?(renderer: GooRenderer, store: WheelStore) {
         self.renderer = renderer
@@ -277,6 +273,12 @@ final class WheelController: NSObject {
             }
         }
         startLink()
+    }
+
+    /// Opens configuration, on the wheel already open or on one opened at `point`.
+    func customize(at point: CGPoint) {
+        if !isOpen { open(at: point, mode: .sticky) }
+        sim.enterConfiguration()
     }
 
     func dismiss() {
@@ -701,5 +703,14 @@ final class WheelController: NSObject {
         guard demo == nil else { return }
         let fallback = NSScreen.main.map { CGPoint(x: $0.visibleFrame.midX, y: $0.visibleFrame.midY) } ?? .zero
         toast.show(message, at: toastPoint ?? fallback)
+    }
+
+    /// Shows a message in the middle of `screen`, for something started from the menu bar.
+    func announce(_ message: Toast.Message, on screen: NSScreen) {
+        toast.show(message, at: CGPoint(x: screen.visibleFrame.midX, y: screen.visibleFrame.midY))
+    }
+
+    func withdrawAnnouncement() {
+        toast.dismiss()
     }
 }

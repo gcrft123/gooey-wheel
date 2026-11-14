@@ -21,6 +21,21 @@ final class LogiButton {
     /// The MX Master 4's thumb panel.
     static let thumbPanel: UInt16 = 0x01A0
 
+    /// What a button is called, by its HID++ control ID, for the ones that have a common name.
+    static func name(of control: UInt16) -> String? {
+        switch control {
+        case 0x0052: return "Middle Button"
+        case 0x0053: return "Back Button"
+        case 0x0056: return "Forward Button"
+        case 0x005B: return "Wheel Tilt Left"
+        case 0x005D: return "Wheel Tilt Right"
+        case 0x00C3: return "Gesture Button"
+        case 0x00C4: return "Wheel Mode Button"
+        case thumbPanel: return "Thumb Button"
+        default: return nil
+        }
+    }
+
     /// One that reads no button and only carries requests to the mouse, for the self-test.
     static func withoutButton() -> LogiButton { LogiButton(controlID: nil) }
 
@@ -47,7 +62,7 @@ final class LogiButton {
     }
 
     /// The button read, or nil to read none.
-    fileprivate let controlID: UInt16?
+    fileprivate(set) var controlID: UInt16?
     private let manager: IOHIDManager
     private(set) var links: [LogiLink] = []
     private var receivers: [LogiReceiver] = []
@@ -106,6 +121,52 @@ final class LogiButton {
 
     private static let bluetoothPage: UInt32 = 0xFF43
     private static let bluetoothUsage: UInt32 = 0x0202
+
+    /// Reads `control` from now on, and hands the button read until now back to the mouse.
+    func assign(_ control: UInt16) {
+        guard control != controlID else { return }
+        let old = controlID
+        controlID = control
+        for link in links { link.reassign(from: old) }
+        refreshStatus()
+    }
+
+    /// Whether a connected mouse can report presses of its other buttons, for `capturePress`.
+    var canCapture: Bool { links.contains { $0.canCapture } }
+    var isCapturing: Bool { capture != nil }
+    private var capture: ((UInt16?) -> Void)?
+    private var captureTimer: Timer?
+
+    /// Waits for a press of any button the mouse lets this app take, other than the left and
+    /// right buttons, and passes its control ID to `completion`. Nil when nothing is pressed
+    /// within `timeout` or `cancelCapture()` is called. Meanwhile those buttons do nothing else,
+    /// and the button read now doesn't report.
+    func capturePress(timeout: TimeInterval, completion: @escaping (UInt16?) -> Void) {
+        cancelCapture()
+        let mice = links.filter(\.canCapture)
+        guard !mice.isEmpty else {
+            completion(nil)
+            return
+        }
+        capture = completion
+        for link in mice { link.startCapture() }
+        captureTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
+            self?.endCapture(nil)
+        }
+    }
+
+    func cancelCapture() {
+        endCapture(nil)
+    }
+
+    fileprivate func endCapture(_ control: UInt16?) {
+        guard let completion = capture else { return }
+        capture = nil
+        captureTimer?.invalidate()
+        captureTimer = nil
+        for link in links { link.endCapture() }
+        completion(control)
+    }
 
     private func attach(_ device: IOHIDDevice) {
         guard !links.contains(where: { $0.device == device }), !receivers.contains(where: { $0.port.device == device }) else { return }
@@ -353,24 +414,67 @@ final class LogiLink {
                 return
             }
             self.controlsIndex = reply[0]
-            // Function 2 reads the button's current reporting. It fails if the mouse has no such button.
-            self.request(self.controlsIndex, 2, self.controlBytes) { [weak self] reporting in
-                guard let self, let reporting else {
-                    NSLog("LogiButton: \(self?.name ?? "device") has no control 0x%04x", self?.owner.controlID ?? 0)
-                    self?.discover()
-                    return
-                }
-                // The flags as they were before this app ever diverted the button, kept across
-                // launches: after a crash the mouse still reports this app's divert.
-                let key = "ReportingBefore." + self.name
-                let saved = UserDefaults.standard.array(forKey: key) as? [Int]
-                let before = saved.map { $0.map(UInt8.init(truncatingIfNeeded:)) } ?? [reporting[2], reporting[5]]
-                if saved == nil { UserDefaults.standard.set(before.map(Int.init), forKey: key) }
-                self.flagsBefore = before[0]
-                self.flags2Before = before[1]
-                self.divert()
-            }
+            self.claim()
         }
+    }
+
+    /// Counts the times this link has started taking a button, so answers about one it has
+    /// since let go of are ignored.
+    private var claims = 0
+
+    /// Saves the owner's button's reporting as it is, then diverts it.
+    private func claim() {
+        claims += 1
+        let claim = claims
+        // Function 2 reads the button's current reporting. It fails if the mouse has no such button.
+        request(controlsIndex, 2, controlBytes) { [weak self] reporting in
+            guard let self, claim == self.claims else { return }
+            guard let reporting else {
+                NSLog("LogiButton: \(self.name) has no control 0x%04x", self.owner.controlID ?? 0)
+                self.discover()
+                return
+            }
+            // The flags as they were before this app ever diverted the button, kept across
+            // launches: after a crash the mouse still reports this app's divert.
+            let key = self.savedReportingKey
+            let saved = UserDefaults.standard.array(forKey: key) as? [Int]
+            let before = saved.map { $0.map(UInt8.init(truncatingIfNeeded:)) } ?? [reporting[2], reporting[5]]
+            if saved == nil { UserDefaults.standard.set(before.map(Int.init), forKey: key) }
+            self.flagsBefore = before[0]
+            self.flags2Before = before[1]
+            self.divert()
+        }
+    }
+
+    private var savedReportingKey: String {
+        "ReportingBefore." + name + String(format: ".%04X", owner.controlID ?? 0)
+    }
+
+    /// Hands `old` back to the mouse and takes the owner's button instead.
+    func reassign(from old: UInt16?) {
+        if let old, let before = flagsBefore, let params = Self.handBack(old, before: before, before2: flags2Before) {
+            request(controlsIndex, 3, params) { _ in }
+        }
+        if let old {
+            UserDefaults.standard.removeObject(forKey: "ReportingBefore." + name + String(format: ".%04X", old))
+        }
+        flagsBefore = nil
+        flags2Before = 0
+        analyticsOn = false
+        ready = false
+        tracker = ButtonTracker()
+        if controlsIndex == 0 { setUpButton() } else { claim() }
+    }
+
+    /// The parameters of the request that undoes this app's changes to `control`'s reporting,
+    /// given its two flags bytes from before, or nil if there's nothing to undo. 0x02 is a
+    /// setting's valid bit with the setting off.
+    private static func handBack(_ control: UInt16, before: UInt8, before2: UInt8) -> [UInt8]? {
+        let undivert = before & 0x01 == 0
+        // Analytics may have been turned on by a divert still on its way.
+        let unanalytics = before2 & 0x01 == 0
+        guard undivert || unanalytics else { return nil }
+        return [UInt8(control >> 8), UInt8(control & 0xFF), undivert ? 0x02 : 0, 0, 0, unanalytics ? 0x02 : 0]
     }
 
     func divert(analytics: Bool = true) {
@@ -380,8 +484,9 @@ final class LogiLink {
         // analytics, a second report of each press and release; the MX Master 4 sometimes leaves
         // a transition out of the divert report, and the analytics report fills it in.
         // None of this is persistent: the mouse forgets it when it reconnects, and this runs again.
+        let claim = claims
         request(controlsIndex, 3, controlBytes + [0x03, 0, 0, analytics ? 0x03 : 0]) { [weak self] reply in
-            guard let self else { return }
+            guard let self, claim == self.claims else { return }
             TriggerDebug.log("divert analytics=\(analytics) reply=\(reply == nil ? "none" : "ok")")
             if reply == nil, analytics {
                 // A mouse without analytics reporting refuses the whole request. Divert alone.
@@ -484,19 +589,67 @@ final class LogiLink {
     }
 
 
-    /// Undoes what this app turned on. 0x02 is a setting's valid bit with the setting off.
-    /// Requests still waiting are dropped first, so none of them lands after it. It runs even
-    /// before the divert has been answered, since the divert may already be on its way.
+    /// Undoes what this app turned on. Requests still waiting are dropped first, so none of
+    /// them lands after it. It runs even before the divert has been answered, since the divert
+    /// may already be on its way.
     func restore() {
         close()
-        guard let before = flagsBefore else { return }
-        let undivert = before & 0x01 == 0
-        // Analytics may have been turned on by a divert still on its way.
-        let unanalytics = flags2Before & 0x01 == 0
-        guard undivert || unanalytics else { return }
-        if send(controlsIndex, 3, controlBytes + [undivert ? 0x02 : 0, 0, 0, unanalytics ? 0x02 : 0]) != nil {
-            UserDefaults.standard.removeObject(forKey: "ReportingBefore." + name)
+        for control in capturedBefore.compactMap({ $0.value == 0 ? $0.key : nil }) {
+            send(controlsIndex, 3, [UInt8(control >> 8), UInt8(control & 0xFF), 0x02, 0, 0, 0])
         }
+        guard let before = flagsBefore, let control = owner.controlID,
+              let params = Self.handBack(control, before: before, before2: flags2Before) else { return }
+        if send(controlsIndex, 3, params) != nil {
+            UserDefaults.standard.removeObject(forKey: savedReportingKey)
+        }
+    }
+
+    // MARK: Capturing a press
+
+    /// The left and right buttons, which are never taken.
+    private static let mainButtons: Set<UInt16> = [0x0050, 0x0051]
+    /// Set while waiting for a press of any button.
+    private var capturing = false
+    /// The buttons diverted to wait for a press, each with its divert bit from before.
+    private var capturedBefore: [UInt16: UInt8] = [:]
+    /// The diverted buttons last reported down while capturing.
+    private var capturedDown: Set<UInt16> = []
+
+    var canCapture: Bool { isMouse && controlsIndex != 0 }
+
+    /// Diverts every button the mouse allows, except the left and right buttons and the one
+    /// already read, so a press of any of them is reported.
+    func startCapture() {
+        capturing = true
+        capturedDown = []
+        // Function 0 counts the controls. Function 1 describes one by its index: its ID, its
+        // task, then a flags byte in which 0x20 marks one that can be diverted.
+        request(controlsIndex, 0, []) { [weak self] count in
+            guard let self, self.capturing, let count else { return }
+            for index in 0..<Int(count[0]) {
+                self.request(self.controlsIndex, 1, [UInt8(index)]) { [weak self] info in
+                    guard let self, self.capturing, let info else { return }
+                    let control = UInt16(info[0]) << 8 | UInt16(info[1])
+                    guard info[4] & 0x20 != 0, !Self.mainButtons.contains(control), control != self.owner.controlID else { return }
+                    self.request(self.controlsIndex, 2, [info[0], info[1]]) { [weak self] reporting in
+                        guard let self, self.capturing, let reporting else { return }
+                        self.capturedBefore[control] = reporting[2] & 0x01
+                        self.request(self.controlsIndex, 3, [info[0], info[1], 0x03, 0, 0, 0]) { _ in }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Hands back the buttons `startCapture` took. Each request goes after the divert it
+    /// undoes, since they share the queue.
+    func endCapture() {
+        guard capturing else { return }
+        capturing = false
+        for (control, before) in capturedBefore where before == 0 {
+            request(controlsIndex, 3, [UInt8(control >> 8), UInt8(control & 0xFF), 0x02, 0, 0, 0]) { _ in }
+        }
+        capturedBefore = [:]
     }
 
     /// Set once the button has been handed back or the device has gone. Replies arriving after
@@ -639,9 +792,18 @@ final class LogiLink {
         if report[3] & 0x0F == 0, let feature = featureByIndex[report[2]], feature != Self.controlsFeature {
             owner.notified(self, feature, report[3] >> 4, Array(report[4...]))
         }
+        func control(at i: Int) -> UInt16 { UInt16(report[i]) << 8 | UInt16(report[i + 1]) }
+        if capturing, controlsIndex != 0, report[2] == controlsIndex {
+            // While capturing, a button newly listed in event 0 is the one pressed.
+            guard report[3] == 0x00 else { return }
+            let down = Set((0..<4).map { control(at: 4 + 2 * $0) }).subtracting([0])
+            let pressed = down.subtracting(capturedDown)
+            capturedDown = down
+            if let pressed = pressed.min() { owner.endCapture(pressed) }
+            return
+        }
         guard ready, report[2] == controlsIndex else { return }
         TriggerDebug.log("\(channel) " + report[3..<min(report.count, 19)].map { String(format: "%02x", $0) }.joined(separator: " "))
-        func control(at i: Int) -> UInt16 { UInt16(report[i]) << 8 | UInt16(report[i + 1]) }
         let down: Bool
         switch report[3] {
         case 0x00:

@@ -34,7 +34,7 @@ extension WheelSim {
             let tint = clamp01(b.tint.value)
             let color = bubbleColor(b)
             // The open folder's dot stays bright in the shrunken ring to mark the path taken.
-            let marksPath = level.openKey == b.key && parentStyle == .shrink
+            let marksPath = level.openKey == b.key
             let alpha = marksPath ? max(clamp01(level.alpha.value), 0.95) : clamp01(level.alpha.value)
             let lift = 0.09 * clamp01(b.lift.value)
             // Out on a ring that is being configured, bubbles keep to themselves: two that

@@ -260,7 +260,7 @@ extension WheelSim {
     }
 
     func overParentRing(_ p: V2) -> Bool {
-        guard levels.count >= 2, parentStyle == .shrink else { return false }
+        guard levels.count >= 2 else { return false }
         let parent = levels[levels.count - 2]
         return simd_distance(p, parent.center) < tuning.ringRadius * tuning.parentScale + 22
     }
