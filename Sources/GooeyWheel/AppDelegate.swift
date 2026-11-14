@@ -13,6 +13,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var heldTriggers = Set<Trigger>()
     private let thumb = LogiButton(controlID: LogiButton.thumbPanel)
     private var thumbItem: NSMenuItem?
+    /// Shown while the app lacks Accessibility, which shortcuts, typing, and window actions need.
+    private var accessibilityItem: NSMenuItem?
     private let options: LaunchOptions
 
     init(options: LaunchOptions) {
@@ -48,6 +50,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         installStatusItem()
+        // Previous App needs the order apps came forward in from the start.
+        _ = AppHistory.shared
+        // A system shortcut lent out for an action when the app last quit unexpectedly goes back.
+        SymbolicHotKey.restoreInterrupted()
         TriggerDebug.wheelState = { [weak controller] in controller?.debugState ?? "" }
         TriggerDebug.start()
         HotKeyCenter.shared.register(id: Self.summonHotKey, keyCode: kVK_Space, modifiers: controlKey | optionKey) { [weak self] pressed in
@@ -63,6 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        AutomationActions.restoreClipboard()
         thumb.stop()
     }
 
@@ -106,6 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             try? relaunch.run()
             NSApp.terminate(nil)
         }
+        MouseLink.shared.use(thumb)
         thumb.start()
         updateThumbItem()
 
@@ -164,6 +172,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         thumbItem.target = self
         menu.addItem(thumbItem)
         self.thumbItem = thumbItem
+        let accessibility = NSMenuItem(title: "Allow Accessibility for Actions…", action: #selector(openAccessibility), keyEquivalent: "")
+        accessibility.target = self
+        menu.addItem(accessibility)
+        accessibilityItem = accessibility
         menu.addItem(.separator())
         let heading = NSMenuItem(title: "Parent Ring in Folders", action: nil, keyEquivalent: "")
         heading.isEnabled = false
@@ -193,7 +205,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         UserDefaults.standard.set(raw, forKey: Self.parentStyleKey)
     }
 
+    @objc private func openAccessibility() {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        if !AXIsProcessTrustedWithOptions(options),
+           let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     func menuNeedsUpdate(_ menu: NSMenu) {
+        accessibilityItem?.isHidden = AXIsProcessTrusted()
         for item in menu.items {
             guard let raw = item.representedObject as? String else { continue }
             item.state = raw == controller?.parentStyle.rawValue ? .on : .off

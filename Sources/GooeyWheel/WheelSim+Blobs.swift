@@ -10,12 +10,20 @@ extension WheelSim {
         out.reserveCapacity(64)
 
         for level in allLevels {
+            if level.isControl {
+                if let bar = barBlob(level) { out.append(bar) }
+                continue
+            }
             let hw = max(level.hubHalfW.value, 0)
             let hh = max(level.hubHalfH.value, 0)
             if hw > 0.3, hh > 0.3 {
+                // While it holds a label the hub keeps to itself, so a wide label doesn't reach
+                // for the bubbles beside it.
+                let labeled = level === levels.last ? clamp01(labelMix.value) : 0
                 out.append(Blob(
                     center: hubDisplayPosition(level), half: V2(hw, hh), corner: min(hw, hh),
-                    tint: clamp01(level.hubTint.value), alpha: clamp01(level.alpha.value), color: level.color?.rgb
+                    tint: clamp01(level.hubTint.value), alpha: clamp01(level.alpha.value), color: level.color?.rgb,
+                    firm: 0.35 * labeled
                 ))
             }
         }

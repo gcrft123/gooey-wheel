@@ -87,6 +87,8 @@ extension WheelSim {
 
     func enterConfiguration() {
         guard phase == .open, !config.active else { return }
+        // A picker's choices and a slider's bar aren't part of the wheel's arrangement.
+        while let last = levels.last, levels.count > 1, last.container == nil, !last.isEdit { back() }
         config = ConfigState()
         config.active = true
         config.presence.config = tuning.jiggle > 0 ? SpringConfig(k: 240, c: 26) : .critical(k: 600)
@@ -155,6 +157,11 @@ extension WheelSim {
     }
 
     func pointerUp() {
+        // A bar opened by pressing on its bubble closes when the button comes up after a drag.
+        if phase == .open, !config.active, let drive = barDrive, drive.springLoaded {
+            if drive.dragged { back() } else { barDrive?.springLoaded = false }
+            return
+        }
         if phase == .open, config.editor != nil {
             editorPointerUp()
             return
@@ -183,6 +190,8 @@ extension WheelSim {
                 enter(b, editing: !item.isFolder)
             case .option(let option):
                 choose(option, on: b)
+            case .choice:
+                break
             }
         case .hub:
             if level.isEdit { back() } else { addItem() }
@@ -442,7 +451,8 @@ extension WheelSim {
     /// In normal use, and for an edit option, the hovered bubble fills with color: clicking
     /// picks it. A bubble being arranged only brightens.
     func fillsOnHover(_ b: Bubble) -> Bool {
-        !config.active || b.level.isEdit
+        // An action this Mac can't run only brightens: there is nothing to choose.
+        (!config.active && isAvailable(b)) || b.level.isEdit
     }
 
     func hoverRadius(_ b: Bubble) -> Double {
@@ -472,7 +482,7 @@ extension WheelSim {
 
     /// Where the bubble is drawn: its place plus the jiggle.
     func displayPosition(_ b: Bubble) -> V2 {
-        b.pos.value + jiggle(b).offset
+        b.pos.value + jiggle(b).offset + shakeOffset(b)
     }
 
     func hubDisplayPosition(_ level: Level) -> V2 {
@@ -508,7 +518,8 @@ extension WheelSim {
         let t = tuning
         let level = b.level
         let r = b.radius.value
-        guard b.entry.isFolder, outward(b) != nil, !b.leaving, level.role == .active, level.scale.value > 0.85, r > 12 else { return 0 }
+        let budded = b.entry.isFolder || (!config.active && b.entry.opens)
+        guard budded, outward(b) != nil, !b.leaving, level.role == .active, level.scale.value > 0.85, r > 12 else { return 0 }
         let swelling = level === levels.last && hovered == b.slot
         let bud = 4.6 * min(r / t.bubbleRadius, 1.1) * (swelling ? 1 + 0.9 * folderDwellProgress : 1)
         return bud + (t.folderBadgeSocket - bud) * max(b.badge.value, 0)

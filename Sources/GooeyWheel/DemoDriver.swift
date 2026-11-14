@@ -6,6 +6,8 @@ enum DemoScript: String {
     case wheel
     /// Configuration: removing, adding, the editing panels, and dragging.
     case configure
+    /// In-item controls: a slider's level and bar, a picker, and toggles.
+    case controls
 }
 
 /// Where the demo's opaque backdrop goes: the bottom-right corner of the screen, no larger
@@ -18,7 +20,7 @@ enum DemoStage {
         switch script {
         case .wheel: return CGSize(width: 860, height: 660)
         // The editing panels are wider than the wheel.
-        case .configure: return CGSize(width: 1100, height: 840)
+        case .configure, .controls: return CGSize(width: 1100, height: 840)
         }
     }
 
@@ -49,6 +51,8 @@ enum DemoStage {
 final class DemoDriver {
     enum Event {
         case open, click, press, release, secondaryClick, escape, undo, finish
+        /// A turn of the scroll wheel, in notches away from the hand.
+        case scroll(Double)
         /// One scripted interaction inside the open editing panel.
         case editor(Int)
         /// Input sent through the demo's own window, as the system would deliver it, to
@@ -95,6 +99,7 @@ final class DemoDriver {
         switch script {
         case .wheel: self.script = Self.wheelScript()
         case .configure: self.script = Self.configureScript()
+        case .controls: self.script = Self.controlsScript()
         }
         resolved = Array(repeating: nil, count: self.script.path.count)
     }
@@ -177,6 +182,7 @@ final class DemoDriver {
             case .press: controller.pointerDown()
             case .release: controller.pointerUp()
             case .secondaryClick: controller.secondaryClick()
+            case .scroll(let notches): controller.sim.scroll(up: notches, right: 0, precise: false)
             case .escape: controller.sim.escape()
             case .undo: controller.sim.undo()
             case .editor(let step): controller.editorDemo(step)
@@ -264,5 +270,70 @@ extension WheelSim {
 
     func demoPanel(_ offset: V2 = V2(0, 0)) -> V2? {
         config.editor.map { $0.center + offset }
+    }
+}
+
+/// States the scripted demo shows in place of this Mac's, so a recording neither reads nor
+/// changes anything real.
+final class DemoControls: ControlSource {
+    private var levels: [String: Double] = ["media.volume": 0.45, "system.brightness": 0.7, "system.keyboardBrightness": 0.3, "mouse.pointerSpeed": 0.5]
+    private var toggles: [String: Bool] = ["system.doNotDisturb": true, "system.appearance": true, "media.mute": false, "system.micMute": false]
+    private var playing = true
+    private var output = "studio"
+
+    private func id(_ item: WheelItem) -> String { item.actionID ?? "" }
+
+    /// One item the demo pretends this Mac can't run, to show a refusal.
+    func isAvailable(_ item: WheelItem) -> Bool { id(item) != "system.emoji" }
+    func isOn(_ item: WheelItem) -> Bool? { toggles[id(item)] }
+
+    func liveSymbol(_ item: WheelItem) -> String? {
+        switch id(item) {
+        case "media.volume":
+            let v = levels["media.volume"] ?? 0
+            return v == 0 ? "speaker.slash.fill" : v < 0.34 ? "speaker.wave.1.fill" : v < 0.67 ? "speaker.wave.2.fill" : "speaker.wave.3.fill"
+        case "media.playPause": return playing ? "pause.fill" : "play.fill"
+        default: return nil
+        }
+    }
+
+    func detail(_ item: WheelItem) -> String? {
+        if let level = level(item) { return format(item, level: level) }
+        if let on = isOn(item) { return on ? "On" : "Off" }
+        switch id(item) {
+        case "media.controls", "media.playPause": return "Clair de Lune — Debussy"
+        case "media.output": return "Studio Display Speakers"
+        default: return nil
+        }
+    }
+
+    func level(_ item: WheelItem) -> Double? { levels[id(item)] }
+    func setLevel(_ item: WheelItem, _ value: Double) { levels[id(item)] = value }
+    func detent(_ item: WheelItem) -> Double { 1.0 / 32 }
+    func format(_ item: WheelItem, level: Double) -> String? { "\(Int((level * 100).rounded()))%" }
+    func step(_ item: WheelItem, by notches: Int) {}
+
+    func choices(_ item: WheelItem) -> [LiveChoice] {
+        switch id(item) {
+        case "media.controls":
+            return [
+                LiveChoice(id: "previous", title: "Previous", symbol: "backward.fill", keepsOpen: true),
+                LiveChoice(id: "playPause", title: playing ? "Pause" : "Play", symbol: playing ? "pause.fill" : "play.fill", keepsOpen: true),
+                LiveChoice(id: "next", title: "Next", symbol: "forward.fill", keepsOpen: true),
+            ]
+        case "media.output":
+            return [
+                LiveChoice(id: "studio", title: "Studio Display Speakers", symbol: "display", isCurrent: output == "studio"),
+                LiveChoice(id: "airpods", title: "AirPods Pro", symbol: "airpods", isCurrent: output == "airpods"),
+                LiveChoice(id: "speakers", title: "Desk Speakers", symbol: "hifispeaker.fill", isCurrent: output == "speakers"),
+            ]
+        default:
+            return []
+        }
+    }
+
+    func choose(_ choice: LiveChoice, of item: WheelItem) {
+        if choice.id == "playPause" { playing.toggle() }
+        if id(item) == "media.output" { output = choice.id }
     }
 }

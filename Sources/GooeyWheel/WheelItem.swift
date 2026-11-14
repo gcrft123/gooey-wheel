@@ -55,6 +55,7 @@ struct WheelItem: Codable, Equatable, Identifiable {
         if let customTitle, !customTitle.isEmpty { return customTitle }
         if isFolder { return "Folder" }
         guard let action = actionID.flatMap(ActionCatalog.action) else { return "New Action" }
+        if let choice = action.choice(argument) { return choice.title }
         if let argument, !argument.isEmpty, let name = Self.describe?(action, argument) { return name }
         return action.title
     }
@@ -63,12 +64,37 @@ struct WheelItem: Codable, Equatable, Identifiable {
     /// because finding that name needs more than this file knows about.
     static var describe: ((ActionDefinition, String) -> String?)?
 
-    /// The custom icon, or the action's.
+    /// The custom icon, or the action's: the one for what it is set to, if that has its own.
     var symbol: String {
         if let customSymbol, !customSymbol.isEmpty { return customSymbol }
-        if isFolder { return "folder" }
-        return actionID.flatMap(ActionCatalog.action)?.symbol ?? "app.dashed"
+        return defaultSymbol
     }
+
+    /// The icon the item has without a custom one. The icon panel offers it first.
+    var defaultSymbol: String {
+        if isFolder { return "folder" }
+        guard let action = actionID.flatMap(ActionCatalog.action) else { return "app.dashed" }
+        if let symbol = action.choice(argument)?.symbol { return symbol }
+        if action.parameter == .folder, let argument, let symbol = Self.folderSymbols[Self.standardized(argument)] { return symbol }
+        return action.symbol
+    }
+
+    private static func standardized(_ path: String) -> String {
+        ((path as NSString).expandingTildeInPath as NSString).standardizingPath
+    }
+
+    /// Folders that Finder shows with an icon of their own.
+    private static let folderSymbols: [String: String] = {
+        let home = NSHomeDirectory() as NSString
+        return [
+            home.appendingPathComponent("Downloads"): "arrow.down.circle.fill",
+            home.appendingPathComponent("Desktop"): "menubar.dock.rectangle",
+            home.appendingPathComponent("Documents"): "doc.fill",
+            home as String: "house.fill",
+            home.appendingPathComponent(".Trash"): "trash",
+            "/Applications": "square.grid.3x3.fill",
+        ]
+    }()
 
     static func action(_ id: String, argument: String? = nil, title: String? = nil, symbol: String? = nil) -> WheelItem {
         WheelItem(actionID: id, argument: argument, customTitle: title, customSymbol: symbol)
@@ -104,9 +130,9 @@ extension WheelItem {
             .action("media.previous"),
             .action("media.playPause"),
             .action("media.next"),
-            .action("media.volumeUp"),
-            .action("media.volumeDown"),
+            .action("media.volume"),
             .action("media.mute"),
+            .action("media.output"),
         ]),
         .action("system.emoji"),
         .action("system.lockScreen"),

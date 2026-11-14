@@ -11,7 +11,7 @@ final class WheelLayers {
         didSet {
             guard scale != oldValue else { return }
             imageCache.removeAll()
-            for label in [labelA, labelB, tagLabel] { label.layer.contentsScale = scale }
+            for label in [labelA, labelB, tagLabel, barValue] { label.layer.contentsScale = scale }
             hintLabel.contentsScale = scale
         }
     }
@@ -32,6 +32,13 @@ final class WheelLayers {
     private var hubMarks: [Int: TintedIcon] = [:]
     /// The dotted border around an item that is being edited.
     private var borders: [Int: CAShapeLayer] = [:]
+    /// The level a slider's bubble shows around its rim: a faint track and the filled part.
+    private var levelRings: [Int: (track: CAShapeLayer, fill: CAShapeLayer)] = [:]
+    /// The reading at the high end of an open bar, such as "45%".
+    private let barValue = TextLabel()
+    /// An open bar's fill: a rounded well the size of the bar, less a rim, filled from the low end.
+    private let barWell = CALayer()
+    private let barFill = CALayer()
     /// The back and save marks on an editing panel's buttons. Index 0 is back.
     private var panelMarks: [Int: TintedIcon] = [:]
     private let labelA = TextLabel()
@@ -99,21 +106,34 @@ final class WheelLayers {
             text = next
             color = rgb
             let cg = CGColor(srgbRed: CGFloat(rgb.x), green: CGFloat(rgb.y), blue: CGFloat(rgb.z), alpha: 1)
-            let string = NSAttributedString(string: next, attributes: [.font: WheelLayers.labelFont, .foregroundColor: NSColor(cgColor: cg) ?? .white])
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            // Two lines sit close, so they read as one label.
+            paragraph.maximumLineHeight = 16
+            paragraph.minimumLineHeight = 16
+            let string = NSAttributedString(string: next, attributes: [
+                .font: WheelLayers.labelFont, .foregroundColor: NSColor(cgColor: cg) ?? .white, .paragraphStyle: paragraph,
+            ])
             layer.string = string
-            let size = string.size()
+            let size = string.boundingRect(with: CGSize(width: 1000, height: 200), options: [.usesLineFragmentOrigin]).size
             layer.bounds = CGRect(x: 0, y: 0, width: ceil(size.width) + 4, height: ceil(size.height))
         }
     }
 
     init() {
-        for layer in [labelA.layer, labelB.layer, tagLabel.layer, hintLabel] {
+        for layer in [labelA.layer, labelB.layer, tagLabel.layer, barValue.layer, hintLabel] {
             layer.alignmentMode = .center
             layer.contentsScale = scale
             layer.opacity = 0
             root.addSublayer(layer)
         }
         hintLabel.zPosition = 1
+        barValue.layer.zPosition = 1.5
+        barWell.masksToBounds = true
+        barWell.zPosition = 0.5
+        barWell.opacity = 0
+        barWell.addSublayer(barFill)
+        root.addSublayer(barWell)
         cursorLayer.zPosition = 10
         cursorLayer.isHidden = true
         root.addSublayer(cursorLayer)
@@ -225,6 +245,13 @@ final class WheelLayers {
         panelMarks.removeAll()
         for border in borders.values { border.removeFromSuperlayer() }
         borders.removeAll()
+        for ring in levelRings.values {
+            ring.track.removeFromSuperlayer()
+            ring.fill.removeFromSuperlayer()
+        }
+        levelRings.removeAll()
+        barValue.layer.opacity = 0
+        barWell.opacity = 0
     }
 
     private static func mix(_ a: SIMD3<Float>, _ b: SIMD3<Float>, _ t: Float) -> SIMD3<Float> {
@@ -238,20 +265,40 @@ final class WheelLayers {
         // Bubble icons
         var seen = Set<Int>()
         var seenBadges = Set<Int>()
+        var seenRings = Set<Int>()
         for b in sim.bubbles where b.active {
             seen.insert(b.id)
-            guard let icon = icon(in: &icons, id: b.id, name: b.entry.symbol, pointSize: 19, weight: .medium) else { continue }
+            guard let icon = icon(in: &icons, id: b.id, name: sim.symbol(for: b), pointSize: 19, weight: .medium) else { continue }
             let r = b.radius.value
             let grow = r / t.bubbleRadius
             let tint = Float(clamp01(b.tint.value))
             // An item with its own color shows it in the glyph at rest and in the fill when chosen.
+            // A toggle that is on, and the choice in effect, show the accent instead.
             let fill = sim.bubbleColor(b)
-            let rest = fill ?? style.icon
+            let rest = sim.isLit(b) ? style.accent : (fill ?? style.icon)
             let chosen = fill.map(GooStyle.glyphColor(on:)) ?? style.iconOnAccent
-            icon.setTint(Self.mix(rest, chosen, tint), alpha: 0.9 + 0.1 * tint)
+            // An action this Mac can't run is shown faded.
+            let available: Float = sim.isAvailable(b) ? 1 : 0.38
+            icon.setTint(Self.mix(rest, chosen, tint), alpha: (0.9 + 0.1 * tint) * available)
             let wobble = sim.jiggle(b)
             let fade = sim.iconFade(b)
-            place(icon.layer, at: b.pos.value + wobble.offset, scale: min(max(grow, 0.01), 1.4), opacity: (grow - 0.5) / 0.35 * fade, rotation: wobble.rotation)
+            place(icon.layer, at: sim.displayPosition(b), scale: min(max(grow, 0.01), 1.4), opacity: (grow - 0.5) / 0.35 * fade, rotation: wobble.rotation)
+
+            if let level = sim.shownLevel(b) {
+                seenRings.insert(b.id)
+                let ring = levelRings[b.id] ?? makeLevelRing(for: b.id)
+                let hot = Float(clamp01(b.tint.value))
+                // On a filled bubble the ring takes the glyph's color, so it stays visible.
+                let lit = Self.mix(fill ?? style.accent, chosen, hot)
+                ring.fill.strokeColor = CGColor(srgbRed: CGFloat(lit.x), green: CGFloat(lit.y), blue: CGFloat(lit.z), alpha: 0.95)
+                let base = Self.mix(style.icon, chosen, hot)
+                ring.track.strokeColor = CGColor(srgbRed: CGFloat(base.x), green: CGFloat(base.y), blue: CGFloat(base.z), alpha: 0.16)
+                ring.fill.strokeEnd = CGFloat(level)
+                let ringScale = max(r - 4.5, 1) / Self.levelRingRadius
+                let opacity = (grow - 0.6) / 0.3 * fade
+                place(ring.track, at: sim.displayPosition(b), scale: ringScale, opacity: opacity)
+                place(ring.fill, at: sim.displayPosition(b), scale: ringScale, opacity: opacity)
+            }
 
             let out = clamp01(b.badge.value)
             guard out > 0.02, let item = b.entry.item, let badge = badge(for: b.id, folder: item.isFolder) else { continue }
@@ -266,6 +313,11 @@ final class WheelLayers {
             place(badge.layer, at: sim.badgeCenter(b), scale: sim.badgeScale(b), opacity: (out - 0.3) / 0.4 * fade)
         }
         prune(&icons, keeping: seen)
+        for (id, ring) in levelRings where !seenRings.contains(id) {
+            ring.track.removeFromSuperlayer()
+            ring.fill.removeFromSuperlayer()
+            levelRings[id] = nil
+        }
         for (id, badge) in badges where !seenBadges.contains(id) {
             badge.layer.removeFromSuperlayer()
             badges[id] = nil
@@ -278,6 +330,7 @@ final class WheelLayers {
         var seenGlyphs = Set<Int>()
         var seenMarks = Set<Int>()
         var seenBorders = Set<Int>()
+        var barShown = false
         for level in sim.allLevels {
             let presence = clamp01(level.hubHalfH.value / 13)
             // A ring in the background shows no glyph. One that is draining keeps its glyph until its hub is gone.
@@ -293,7 +346,38 @@ final class WheelLayers {
             // While configuring, a ring's hub is its add button.
             let adding = level.isEdit ? 0 : configuring
 
-            if let symbol = level.symbol,
+            if level.isControl, let bar = sim.barGeometry(level) {
+                // A bar carries its glyph at the low end, on the fill, and its reading at the high end.
+                let symbol = sim.levelSymbol(level) ?? level.symbol ?? "slider.horizontal.3"
+                let open = sim.barOpenness(level)
+                let accent = fill ?? style.accent
+                let onFill = GooStyle.glyphColor(on: accent)
+                // How far the fill reaches along the bar, from its low end.
+                let span = simd_distance(bar.low, bar.high)
+                let reach = 3 + clamp01(bar.value) * max(span - 6, 0)
+                func covered(_ at: Double) -> Float { Float(clamp01((reach - at) / 10 + 0.5)) }
+                if level === active {
+                    placeBarFill(level, bar: bar, color: accent, opacity: open, corner: sim.barCorner(level, thickness: bar.thickness))
+                    barShown = true
+                }
+                if let glyph = icon(in: &hubGlyphs, id: level.id, name: symbol, pointSize: 17, weight: .medium) {
+                    seenGlyphs.insert(level.id)
+                    glyph.layer.zPosition = 1.5
+                    let along = bar.thickness / 2
+                    glyph.setTint(Self.mix(style.icon, onFill, covered(along)), alpha: 0.95)
+                    let presence = clamp01(bar.thickness / 2 / 13)
+                    // The bubble's glyph slides from the middle to the low end as the bar opens.
+                    let at = hubPosition(level) + (bar.low + level.barAxis * along - hubPosition(level)) * open
+                    place(glyph.layer, at: at, scale: 0.75 + 0.25 * open, opacity: presence * Double(clamp01(level.alpha.value)))
+                }
+                if level === active, let reading = sim.barReading(level) {
+                    let inset = abs(level.barAxis.x) > 0.5 ? 26.0 : 16.0
+                    let along = span - inset
+                    barValue.set(reading, color: covered(along) > 0.5 ? onFill : style.icon)
+                    let at = bar.high - level.barAxis * inset
+                    place(barValue.layer, at: at, scale: 0.85 + 0.15 * open, opacity: (open - 0.5) / 0.4)
+                }
+            } else if let symbol = level.symbol,
                let glyph = icon(in: &hubGlyphs, id: level.id, name: symbol, pointSize: 19, weight: .medium) {
                 seenGlyphs.insert(level.id)
                 glyph.setTint(Self.mix(fill ?? style.icon, chosen, hubTint), alpha: 0.9)
@@ -301,7 +385,7 @@ final class WheelLayers {
                 let size = level.isEdit ? max(level.hubHalfW.value, 0) / t.bubbleRadius : t.hubRadius / t.bubbleRadius
                 place(glyph.layer, at: position, scale: scale * size * (1 - 0.3 * adding), opacity: opacity * (1 - adding))
             }
-            if !level.isEdit, level.symbol == nil || adding > 0.01,
+            if !level.isEdit, !level.isControl, level.symbol == nil || adding > 0.01,
                let mark = icon(in: &hubMarks, id: level.id, name: "xmark", pointSize: 11, weight: .bold) {
                 seenMarks.insert(level.id)
                 let enabled: Float = sim.hasRoom(level) ? 0.92 : 0.24
@@ -324,6 +408,10 @@ final class WheelLayers {
         }
         prune(&hubGlyphs, keeping: seenGlyphs)
         prune(&hubMarks, keeping: seenMarks)
+        if !barShown {
+            barValue.layer.opacity = 0
+            barWell.opacity = 0
+        }
         for (id, border) in borders where !seenBorders.contains(id) {
             border.removeFromSuperlayer()
             borders[id] = nil
@@ -376,6 +464,51 @@ final class WheelLayers {
         if let demoCursor {
             cursorLayer.position = point(demoCursor)
         }
+    }
+
+    private func hubPosition(_ level: Level) -> V2 { level.hubPos.value }
+
+    /// Lays the fill over the bar's goo: a well inside its rim, filled from the low end to the level.
+    private func placeBarFill(_ level: Level, bar: (low: V2, high: V2, knob: V2, value: Double, thickness: Double), color: SIMD3<Float>, opacity: Double, corner: Double) {
+        let rim = WheelSim.barRim
+        let minP = simd_min(bar.low, bar.high) - V2(bar.thickness / 2, bar.thickness / 2) * V2(abs(level.barAxis.y), abs(level.barAxis.x))
+        let maxP = simd_max(bar.low, bar.high) + V2(bar.thickness / 2, bar.thickness / 2) * V2(abs(level.barAxis.y), abs(level.barAxis.x))
+        let w = max(maxP.x - minP.x - 2 * rim, 0)
+        let h = max(maxP.y - minP.y - 2 * rim, 0)
+        barWell.frame = CGRect(x: minP.x + rim, y: Double(height) - maxP.y + rim, width: w, height: h)
+        // Concentric with the bar's own corners.
+        barWell.cornerRadius = CGFloat(max(min(corner - rim, min(w, h) / 2), 0))
+        let horizontal = abs(level.barAxis.x) > 0.5
+        let length = horizontal ? w : h
+        let filled = length * clamp01(bar.value)
+        // Layer coordinates run bottom-up: a standing bar fills from the bottom, a lying one from the left.
+        barFill.frame = horizontal ? CGRect(x: 0, y: 0, width: filled, height: h) : CGRect(x: 0, y: 0, width: w, height: filled)
+        barFill.backgroundColor = CGColor(srgbRed: CGFloat(color.x), green: CGFloat(color.y), blue: CGFloat(color.z), alpha: 1)
+        barWell.opacity = Float(clamp01((opacity - 0.15) / 0.5) * clamp01(level.alpha.value))
+    }
+
+    private static let levelRingRadius = 26.0
+
+    /// A circle drawn from 12 o'clock clockwise, so its stroke end can show a level.
+    private func makeLevelRing(for id: Int) -> (track: CAShapeLayer, fill: CAShapeLayer) {
+        let r = Self.levelRingRadius
+        func ring() -> CAShapeLayer {
+            let layer = CAShapeLayer()
+            layer.bounds = CGRect(x: -r, y: -r, width: 2 * r, height: 2 * r)
+            let path = CGMutablePath()
+            // Layer coordinates run bottom-up: start at the top and go clockwise on screen.
+            path.addArc(center: .zero, radius: r, startAngle: .pi / 2, endAngle: .pi / 2 - 2 * .pi, clockwise: true)
+            layer.path = path
+            layer.fillColor = nil
+            layer.lineWidth = 2.6
+            layer.lineCap = .round
+            layer.zPosition = 1
+            root.addSublayer(layer)
+            return layer
+        }
+        let pair = (track: ring(), fill: ring())
+        levelRings[id] = pair
+        return pair
     }
 
     private func makeBorder(for id: Int) -> CAShapeLayer {
