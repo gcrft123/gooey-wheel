@@ -8,7 +8,12 @@ if let iconPath = options.iconPath {
 }
 
 if options.listDemoMarks {
-    let marks = options.demoScript == .controls ? DemoDriver.controlsScript().marks : DemoDriver.configureMarks
+    let marks: [(String, Double)]
+    switch options.demoScript {
+    case .controls: marks = DemoDriver.controlsScript().marks
+    case .tour: marks = DemoDriver.tourScript().marks
+    default: marks = DemoDriver.configureMarks
+    }
     for (name, time) in marks { print(name, String(format: "%.2f", time)) }
     exit(0)
 }
@@ -42,6 +47,28 @@ if let index = CommandLine.arguments.firstIndex(of: "--toast-preview"), index + 
     toast.show(Toast.Message(text: "Microphone muted", symbol: "mic.slash.fill"), at: point)
     capture("5-short", after: 0.6)
     capture("6-leaving", after: 2.05)
+    exit(0)
+}
+
+// Writes images of the welcome panel's pages into a folder, without showing it.
+if let index = CommandLine.arguments.firstIndex(of: "--welcome-preview"), index + 1 < CommandLine.arguments.count {
+    app.setActivationPolicy(.accessory)
+    app.finishLaunching()
+    if let appearance = options.appearance {
+        app.appearance = NSAppearance(named: appearance == "light" ? .aqua : .darkAqua)
+    }
+    WelcomePanel().writePreview(to: CommandLine.arguments[index + 1])
+    exit(0)
+}
+
+// Writes the welcome panel from its way in to Done, frame by frame, without showing it.
+if let index = CommandLine.arguments.firstIndex(of: "--welcome-record"), index + 1 < CommandLine.arguments.count {
+    app.setActivationPolicy(.accessory)
+    app.finishLaunching()
+    if let appearance = options.appearance {
+        app.appearance = NSAppearance(named: appearance == "light" ? .aqua : .darkAqua)
+    }
+    WelcomePanel().writeRecording(to: CommandLine.arguments[index + 1])
     exit(0)
 }
 

@@ -32,6 +32,9 @@ sparkle="$app/Contents/Frameworks/Sparkle.framework"
 ditto "$products/Sparkle.framework" "$sparkle"
 rm -rf "$sparkle/Versions/B/XPCServices" "$sparkle/XPCServices"
 
+# The welcome panel's video (scripts/render-welcome-video.sh makes it).
+cp assets/welcome.mov "$app/Contents/Resources/welcome.mov"
+
 # App icon, rendered by the app's own goo shader.
 iconset="$(mktemp -d)/AppIcon.iconset"
 mkdir -p "$iconset"

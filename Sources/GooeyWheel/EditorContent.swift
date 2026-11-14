@@ -7,6 +7,8 @@ struct EditorContext {
     let store: WheelStore
     let style: GooStyle
     let shape: PanelShape
+    /// Shows a dialog, such as an Open panel, run inside the closure, over the wheel.
+    let runModal: (() -> Void) -> Void
 
     var size: CGSize { CGSize(width: 2 * shape.half.x, height: 2 * shape.half.y) }
 }
@@ -160,7 +162,7 @@ class EditorContent: NSView {
     /// their cutouts, or anywhere else outside the panel's outline, isn't for these views.
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let superview else { return super.hitTest(point) }
-        guard outline().contains(convert(point, from: superview)) else { return nil }
+        guard outline.contains(convert(point, from: superview)) else { return nil }
         return super.hitTest(point)
     }
 
@@ -180,8 +182,10 @@ class EditorContent: NSView {
         visit(self)
     }
 
-    /// The panel's outline in this view's coordinates, used to clip what's inside it.
-    func outline() -> CGPath {
+    /// The panel's outline at rest, in this view's coordinates: where its views take the pointer.
+    private(set) lazy var outline = makeOutline()
+
+    private func makeOutline() -> CGPath {
         let shape = context.shape
         let w = bounds.width
         let h = bounds.height

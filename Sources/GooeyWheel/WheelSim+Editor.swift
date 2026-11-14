@@ -415,17 +415,22 @@ extension WheelSim {
         return Blob.Cutout(center: corner + (rest - corner) * out + lean * out, radius: (max(button.radius.value, tuning.bubbleRadius) + Self.panelButtonGap) * out)
     }
 
-    func editorBlobs(into out: inout [Blob]) {
-        guard let e = config.editor else { return }
+    /// The open panel as the goo draws it, without its buttons.
+    var editorPanelBlob: Blob? {
+        guard let e = config.editor else { return nil }
         let hw = e.halfW.value
         let hh = e.halfH.value
-        guard hw > 0.3, hh > 0.3 else { return }
-        let open = clamp01(e.open.value)
+        guard hw > 0.3, hh > 0.3 else { return nil }
         var panel = Blob(center: e.pos.value, half: V2(hw, hh), corner: min(e.cornerTop.value, hw, hh), tint: clamp01(e.tint.value))
         panel.cornerBottom = min(e.cornerBottom.value, hw, hh)
-        panel.firm = open
+        panel.firm = clamp01(e.open.value)
         panel.cutoutLeft = cutout(for: e.back, in: e, side: -1)
         panel.cutoutRight = cutout(for: e.save, in: e, side: 1)
+        return panel
+    }
+
+    func editorBlobs(into out: inout [Blob]) {
+        guard let e = config.editor, let panel = editorPanelBlob else { return }
         out.append(panel)
         guard !e.dismissed else { return }
 

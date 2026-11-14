@@ -66,6 +66,8 @@ final class WheelController: NSObject {
     var timescale = 1.0
     /// Overrides the system's Reduce Motion setting, for demos.
     var reduceMotion: Bool?
+    /// Overrides the system's accent color, for demos laid over a backdrop of that color.
+    var accent: NSColor?
     var demo: DemoDriver?
     var stage: String?
     var stageScript = DemoScript.wheel
@@ -171,6 +173,10 @@ final class WheelController: NSObject {
             self.sim.editorSaved()
         }
         sim.onEditorClose = { [weak self] in self?.editors.close() }
+        editors.runModal = { [weak self] body in
+            guard let self else { return body() }
+            self.runModal(body)
+        }
         sim.panelPoint = { [weak self] name in self?.editors.demoPoint(name) }
 
     }
@@ -239,8 +245,9 @@ final class WheelController: NSObject {
         return "[" + parts.joined(separator: " ") + "]"
     }
 
-    /// Opens at `point` in screen coordinates, or at the cursor when nil.
-    func open(at point: CGPoint? = nil, mode: WheelSim.Mode, hint: Bool = false, cursor: V2? = nil) {
+    /// Opens at `point` in screen coordinates, or at the cursor when nil. `formed` opens with
+    /// the hub already there, to take over from one drawn on the same spot.
+    func open(at point: CGPoint? = nil, mode: WheelSim.Mode, hint: Bool = false, cursor: V2? = nil, formed: Bool = false) {
         TriggerDebug.log("open mode=\(mode) \(debugState)")
         let mouse = NSEvent.mouseLocation
         let anchor = point ?? mouse
@@ -250,7 +257,7 @@ final class WheelController: NSObject {
             attach(to: screen)
         }
         let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        style = GooStyle.resolve(dark: dark, accent: .controlAccentColor)
+        style = GooStyle.resolve(dark: dark, accent: accent ?? .controlAccentColor)
         sim.tuning = reduceMotion ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? .reducedMotion : Tuning()
 
         if demo == nil {
@@ -259,20 +266,36 @@ final class WheelController: NSObject {
             refreshMouse()
         }
         let center = sim.clampCenter(toSim(anchor))
-        sim.open(center: center, cursor: cursor ?? toSim(mouse), mode: mode, hint: hint)
+        sim.open(center: center, cursor: cursor ?? toSim(mouse), mode: mode, hint: hint, formed: formed)
         positionGooView(force: true)
         renderer.invalidate()
 
         panel.orderFrontRegardless()
         // A demo is driven by its script and leaves Esc to whoever is using the Mac.
-        if demo == nil {
-            HotKeyCenter.shared.register(id: Self.escapeHotKey, keyCode: kVK_Escape, modifiers: 0) { [weak self] pressed in
-                guard pressed, let self else { return }
-                TriggerDebug.event("esc \(self.debugState)")
-                self.sim.escape()
-            }
-        }
+        if demo == nil { registerEscape() }
         startLink()
+    }
+
+    private func registerEscape() {
+        HotKeyCenter.shared.register(id: Self.escapeHotKey, keyCode: kVK_Escape, modifiers: 0) { [weak self] pressed in
+            guard pressed, let self else { return }
+            TriggerDebug.event("esc \(self.debugState)")
+            self.sim.escape()
+        }
+    }
+
+    /// Runs a dialog over the wheel, such as the Open panel for a picture. The dialog has the
+    /// keyboard, Esc included, until it closes. Then the app that was in front is brought back.
+    private func runModal(_ body: () -> Void) {
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        HotKeyCenter.shared.unregister(id: Self.escapeHotKey)
+        // A dialog takes typing only for the active app.
+        NSApp.activate()
+        body()
+        if let frontmost, frontmost != NSRunningApplication.current { frontmost.activate() }
+        guard isOpen else { return }
+        registerEscape()
+        panel.makeKey()
     }
 
     /// Opens configuration, on the wheel already open or on one opened at `point`.
@@ -462,6 +485,7 @@ final class WheelController: NSObject {
         guard let screen = NSScreen.main else { return }
         demo = driver
         sim.controls = demoControls
+        demoControls.refuses = stageScript != .tour
         // The stage sits in the bottom-right corner of the screen, out of the way of whoever
         // is using the Mac while a demo runs. The wheel opens at its center.
         let frame = DemoStage.frame(for: stageScript, on: screen)
@@ -477,7 +501,8 @@ final class WheelController: NSObject {
         let center = DemoStage.wheelCenter(in: frame, script: stageScript)
         driver.origin = toSim(center)
         driver.anchor = center
-        if let stage {
+        // A clear stage leaves the backdrop out, for a video laid over something else.
+        if let stage, stage != "clear" {
             stageView.frame = frame.offsetBy(dx: -screenFrame.minX, dy: -screenFrame.minY)
             let gradient = CAGradientLayer()
             gradient.frame = stageView.bounds
