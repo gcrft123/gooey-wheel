@@ -36,6 +36,12 @@ final class WheelStore {
             root = WheelItem.defaults
             save()
         }
+        if let iconFolder { IconImages.prune(iconFolder, keeping: root) }
+    }
+
+    /// Where pictures added as icons are kept, beside the saved wheel. Nil for a wheel that isn't saved.
+    var iconFolder: URL? {
+        url?.deletingLastPathComponent().appendingPathComponent("Icons", isDirectory: true)
     }
 
     private struct File: Codable {

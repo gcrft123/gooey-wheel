@@ -52,25 +52,37 @@ final class WheelLayers {
     /// Matches `Tuning.badgeRadius`.
     private let badgeRadius = Tuning().badgeRadius
 
+    /// A glyph filled with a color, or a picture in its own colors, such as an app's icon,
+    /// which takes only the alpha.
     private final class TintedIcon {
         let layer = CALayer()
         let name: String
-        private let mask = CALayer()
+        private let image = CALayer()
+        private let isPicture: Bool
         private var tint = SIMD4<Float>(repeating: -1)
 
-        init(name: String, image: CGImage, size: CGSize) {
+        init(name: String, image cg: CGImage, size: CGSize, picture: Bool) {
             self.name = name
+            isPicture = picture
             layer.bounds = CGRect(origin: .zero, size: size)
-            mask.frame = layer.bounds
-            mask.contents = image
-            layer.mask = mask
+            image.frame = layer.bounds
+            image.contents = cg
+            if picture {
+                layer.addSublayer(image)
+            } else {
+                layer.mask = image
+            }
         }
 
         func setTint(_ rgb: SIMD3<Float>, alpha: Float) {
             let next = SIMD4(rgb, alpha)
             guard simd_reduce_max(simd_abs(next - tint)) > 0.004 else { return }
             tint = next
-            layer.backgroundColor = CGColor(srgbRed: CGFloat(rgb.x), green: CGFloat(rgb.y), blue: CGFloat(rgb.z), alpha: CGFloat(alpha))
+            if isPicture {
+                image.opacity = alpha
+            } else {
+                layer.backgroundColor = CGColor(srgbRed: CGFloat(rgb.x), green: CGFloat(rgb.y), blue: CGFloat(rgb.z), alpha: CGFloat(alpha))
+            }
         }
     }
 
@@ -158,13 +170,24 @@ final class WheelLayers {
         cursorLayer.isHidden = false
     }
 
+    /// An SF Symbol, or an app's icon or a picture the user added, rasterized for a layer.
     private func symbol(_ name: String, pointSize: CGFloat, weight: NSFont.Weight) -> (CGImage, CGSize)? {
         let key = "\(name)-\(pointSize)-\(weight.rawValue)"
         if let cached = imageCache[key] { return cached }
-        let config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
-        guard let image = (NSImage(systemSymbolName: name, accessibilityDescription: nil)
-            ?? NSImage(systemSymbolName: "questionmark", accessibilityDescription: nil))?
-            .withSymbolConfiguration(config) else { return nil }
+        let image: NSImage
+        if let picture = ItemIcon.picture(name) {
+            // An app's icon has a margin in its canvas, so it is drawn larger than a glyph
+            // to look the same size.
+            let side = (pointSize * 1.5).rounded()
+            image = picture.copy() as! NSImage
+            image.size = CGSize(width: side, height: side)
+        } else {
+            let config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
+            guard let glyph = (NSImage(systemSymbolName: name, accessibilityDescription: nil)
+                ?? NSImage(systemSymbolName: "questionmark", accessibilityDescription: nil))?
+                .withSymbolConfiguration(config) else { return nil }
+            image = glyph
+        }
         let size = image.size
         // Rasterized above screen density so the icon stays sharp when its bubble swells.
         let density = scale * 1.5
@@ -191,7 +214,7 @@ final class WheelLayers {
             store[id] = nil
         }
         guard let (image, size) = symbol(name, pointSize: pointSize, weight: weight) else { return nil }
-        let icon = TintedIcon(name: name, image: image, size: size)
+        let icon = TintedIcon(name: name, image: image, size: size, picture: ItemIcon.picture(name) != nil)
         root.addSublayer(icon.layer)
         store[id] = icon
         return icon
@@ -207,7 +230,7 @@ final class WheelLayers {
             badges[id] = nil
         }
         guard let (image, size) = symbol(name, pointSize: folder ? 9 : 7.5, weight: folder ? .bold : .heavy) else { return nil }
-        let badge = Badge(glyph: TintedIcon(name: name, image: image, size: size), radius: badgeRadius)
+        let badge = Badge(glyph: TintedIcon(name: name, image: image, size: size, picture: false), radius: badgeRadius)
         badge.layer.zPosition = 2
         root.addSublayer(badge.layer)
         badges[id] = badge
