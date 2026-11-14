@@ -4,12 +4,16 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 swift build -c release
-bin="$(swift build -c release --show-bin-path)/GooeyWheel"
+products="$(swift build -c release --show-bin-path)"
+bin="$products/GooeyWheel"
 
 app="build/Gooey Wheel.app"
 rm -rf "$app"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Frameworks"
 cp "$bin" "$app/Contents/MacOS/GooeyWheel"
+# Loaded by /usr/bin/perl to read what is playing (see NowPlaying.swift).
+helper="$app/Contents/Frameworks/libGooeyNowPlaying.dylib"
+cp "$products/libGooeyNowPlaying.dylib" "$helper"
 
 # App icon, rendered by the app's own goo shader.
 iconset="$(mktemp -d)/AppIcon.iconset"
@@ -37,6 +41,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSAppleEventsUsageDescription</key><string>Gooey Wheel asks Finder to empty the Trash and to act on the files selected in it.</string>
   <key>NSBluetoothAlwaysUsageDescription</key><string>Gooey Wheel reads the thumb button over Bluetooth while Logi Options+ is running.</string>
 </dict>
 </plist>
@@ -44,8 +49,13 @@ PLIST
 
 # Sign with a development certificate when there is one. macOS ties the Input Monitoring grant
 # (needed to read the mouse) to the signature, and an ad-hoc signature changes on every build.
+# The helper library is signed first, as code nested in the app.
 identity="$(security find-identity -v -p codesigning 2>/dev/null | awk '/Apple Development/ {print $2; exit}')"
-if [[ -z "$identity" ]] || ! perl -e 'alarm 30; exec @ARGV' codesign --force --sign "$identity" "$app" >/dev/null 2>&1; then
-  codesign --force --sign - "$app" >/dev/null 2>&1
+sign() {
+  perl -e 'alarm 30; exec @ARGV' codesign --force --sign "$1" "$helper" >/dev/null 2>&1 &&
+    perl -e 'alarm 30; exec @ARGV' codesign --force --sign "$1" "$app" >/dev/null 2>&1
+}
+if [[ -z "$identity" ]] || ! sign "$identity"; then
+  sign -
 fi
 echo "$app"

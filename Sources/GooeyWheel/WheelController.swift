@@ -26,6 +26,7 @@ final class OverlayContentView: NSView {
     override func mouseDown(with event: NSEvent) { controller?.pointerDown() }
     override func mouseUp(with event: NSEvent) { controller?.pointerUp() }
     override func rightMouseDown(with event: NSEvent) { controller?.secondaryClick() }
+    override func scrollWheel(with event: NSEvent) { controller?.scrolled(event) }
 
     override func keyDown(with event: NSEvent) {
         // Keys the wheel doesn't use are dropped, so they don't beep.
@@ -43,10 +44,14 @@ final class WheelController: NSObject {
     private static let escapeHotKey: UInt32 = 2
 
     let sim = WheelSim()
+    let runner = ActionRunner()
     private let renderer: GooRenderer
     private let panel: OverlayPanel
     private let content = OverlayContentView()
     private let stageView = NSView()
+    /// Where the front window would go, shown while a Move Window bubble is hovered.
+    private let previewView = NSView()
+    private var preview = WindowPreview()
     private let gooView: GooView
     private let hostView = NSView()
     private let layers = WheelLayers()
@@ -102,6 +107,9 @@ final class WheelController: NSObject {
         stageView.wantsLayer = true
         stageView.isHidden = true
         content.addSubview(stageView)
+        previewView.wantsLayer = true
+        previewView.layer?.addSublayer(preview.layer)
+        content.addSubview(previewView)
         content.addSubview(gooView)
         hostView.layer = layers.root
         hostView.wantsLayer = true
@@ -110,11 +118,43 @@ final class WheelController: NSObject {
 
         sim.labelWidth = { WheelLayers.labelWidth($0) }
         sim.hintHalfWidth = layers.hintWidth() / 2 + 14
-        sim.onHover = {
+        sim.onHover = { [weak self] in
             NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+            self?.tapMouse(.hover)
         }
-        sim.onSelect = { _ in
+        sim.onSelect = { [weak self] item in
             NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+            self?.tapMouse(.select)
+            // A demo plays the wheel for a recording. It never acts on this Mac.
+            guard let self, self.demo == nil else { return }
+            self.toastPoint = self.screenPoint(self.sim.hubPosition)
+            self.runner.perform(item)
+        }
+        sim.onChoose = { [weak self] choice, item in
+            NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+            guard let self, self.demo == nil else { return }
+            self.toastPoint = self.screenPoint(self.sim.hubPosition)
+            self.runner.choose(choice, of: item)
+        }
+        sim.onDetent = { [weak self] in
+            NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+            self?.tapMouse(.step)
+        }
+        // While a request of this app's has the mouse sending its wheel here instead of to
+        // Logi Options+, the wheel's turns arrive from the mouse itself.
+        MouseWheelEvents.onWheel = { [weak self] vertical, horizontal in
+            guard let self, self.demo == nil, self.sim.phase == .open else { return }
+            self.updateCursor()
+            self.sim.scroll(up: vertical, right: horizontal, precise: false)
+        }
+        sim.onRefuse = {
+            NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+        }
+        sim.controls = runner
+        ActionFeedback.show = { [weak self] message in self?.showToast(message) }
+        runner.onStateChange = { [weak self] in
+            guard let self, self.sim.phase == .open else { return }
+            self.sim.refreshLive()
         }
         sim.onEdit = { [weak self] feedback in self?.edited(feedback) }
         sim.onEditorOpen = { [weak self] request in
@@ -148,6 +188,7 @@ final class WheelController: NSObject {
         scale = backing
         panel.setFrame(screenFrame, display: false)
         hostView.frame = content.bounds
+        previewView.frame = content.bounds
         editors.view.frame = content.bounds
         layers.height = content.bounds.height
         layers.scale = scale
@@ -208,6 +249,11 @@ final class WheelController: NSObject {
         style = GooStyle.resolve(dark: dark, accent: .controlAccentColor)
         sim.tuning = reduceMotion ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? .reducedMotion : Tuning()
 
+        if demo == nil {
+            runner.wheelOpened()
+            optionsPlusRunning = !NSRunningApplication.runningApplications(withBundleIdentifier: Self.optionsPlusAgent).isEmpty
+            refreshMouse()
+        }
         let center = sim.clampCenter(toSim(anchor))
         sim.open(center: center, cursor: cursor ?? toSim(mouse), mode: mode, hint: hint)
         positionGooView(force: true)
@@ -253,6 +299,25 @@ final class WheelController: NSObject {
         TriggerDebug.log("wheel right-click \(debugState)")
         updateCursor()
         sim.secondaryClick()
+    }
+
+    /// A scroll over the wheel adjusts the slider or stepper under the cursor, or an open bar.
+    func scrolled(_ event: NSEvent) {
+        // A trackpad's coasting after the fingers lift would overshoot. Turns that also arrived
+        // from the mouse itself are counted from there.
+        guard event.momentumPhase.isEmpty, !MouseWheelEvents.isActive(within: 0.5) else { return }
+        let inverted = event.isDirectionInvertedFromDevice
+        var dy = Double(event.scrollingDeltaY)
+        var dx = Double(event.scrollingDeltaX)
+        if inverted {
+            dy = -dy
+            dx = -dx
+        }
+        let precise = event.hasPreciseScrollingDeltas
+        // A wheel's events are in lines. A fast spin comes as fewer, larger ones.
+        let limit = precise ? 400.0 : 4.0
+        updateCursor()
+        sim.scroll(up: min(max(dy, -limit), limit), right: min(max(-dx, -limit), limit), precise: precise)
     }
 
     /// ⌘Z and ⇧⌘Z while configuring. Returns whether the key was used.
@@ -373,6 +438,7 @@ final class WheelController: NSObject {
         guard demo == nil else { return }
         link?.isPaused = true
         panel.orderOut(nil)
+        runner.wheelHidden()
     }
 
     // MARK: Demo stage
@@ -381,6 +447,7 @@ final class WheelController: NSObject {
     func startDemo(_ driver: DemoDriver) {
         guard let screen = NSScreen.main else { return }
         demo = driver
+        sim.controls = demoControls
         // The stage sits in the bottom-right corner of the screen, out of the way of whoever
         // is using the Mac while a demo runs. The wheel opens at its center.
         let frame = DemoStage.frame(for: stageScript, on: screen)
@@ -537,6 +604,7 @@ final class WheelController: NSObject {
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        updatePreview(dt)
         positionGooView()
         layers.apply(sim: sim, style: style, demoCursor: demo?.cursor)
         editors.update(sim: sim, dt: dt)
@@ -554,5 +622,72 @@ final class WheelController: NSObject {
         }
     }
 
+    /// Shows where the hovered Move Window bubble would put the front window, gliding from one
+    /// layout to the next.
+    private func updatePreview(_ dt: Double) {
+        var target: CGRect?
+        if demo == nil, sim.phase == .open, !sim.config.active, let b = sim.hoveredBubble,
+           let item = b.entry.item, item.actionID == "window.move" {
+            let key = b.key
+            if preview.key != key {
+                preview.key = key
+                preview.frame = runner.previewFrame(item)
+            }
+            target = preview.frame
+        } else {
+            preview.key = nil
+        }
+        // Only on the screen the wheel is on.
+        if let frame = target, frame.intersects(screenFrame) {
+            preview.show(frame.offsetBy(dx: -screenFrame.minX, dy: -screenFrame.minY), style: style)
+        } else {
+            preview.hide()
+        }
+        preview.step(dt)
+    }
+
+    // MARK: Mouse
+
+    /// Logi Options+'s background agent. While it runs it takes the mouse's scroll wheel, and
+    /// any request this app sends the mouse hands the wheel to this app instead for up to four
+    /// seconds, during which scrolling stops everywhere.
+    private static let optionsPlusAgent = "com.logi.cp-dev-mgr"
+    private var optionsPlusRunning = false
+    private var mouseReadAt = Date.distantPast
+
+    /// A tap from the mouse's own haptic motor. Only without Options+: with it, every tap would
+    /// stop scrolling for a few seconds.
+    private func tapMouse(_ kind: MouseHaptics.Kind) {
+        guard demo == nil, !optionsPlusRunning else { return }
+        MouseHaptics.play(kind)
+    }
+
+    /// Reads the mouse's settings and battery for the bubbles that show them. With Options+
+    /// running this costs the scroll wheel a few seconds, so then at most once a minute.
+    private func refreshMouse() {
+        let shown = sim.store.root.flatMap { [$0] + ($0.children ?? []) }.contains {
+            $0.actionID?.hasPrefix("mouse.") == true || $0.actionID?.hasPrefix("device.") == true
+        }
+        guard shown, !optionsPlusRunning || Date().timeIntervalSince(mouseReadAt) > 60 else { return }
+        mouseReadAt = Date()
+        MouseActions.refresh()
+    }
+
     private var loggedPhase = WheelSim.Phase.closed
+    /// Made-up states for the scripted demo.
+    private let demoControls = DemoControls()
+    private lazy var toast = Toast(device: renderer.device)
+    /// Where the wheel's hub last was, in screen coordinates: where a toast comes from.
+    private var toastPoint: CGPoint?
+
+    private func screenPoint(_ p: V2) -> CGPoint {
+        CGPoint(x: screenFrame.minX + p.x, y: screenFrame.maxY - p.y)
+    }
+
+    /// Shows what an action did, where the wheel was, or mid-screen when there was no wheel.
+    private func showToast(_ message: Toast.Message) {
+        guard demo == nil else { return }
+        let fallback = NSScreen.main.map { CGPoint(x: $0.visibleFrame.midX, y: $0.visibleFrame.midY) } ?? .zero
+        toast.show(message, at: toastPoint ?? fallback)
+    }
 }

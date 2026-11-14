@@ -37,7 +37,6 @@ class ParameterView: NSView {
         case .text: return TextEditor(value: value, monospaced: false, theme: theme)
         case .keystroke: return KeystrokeRecorder(value: value, theme: theme)
         case .choice(let options): return ChoiceEditor(options: options, value: value, theme: theme)
-        case .level(let range, let unit): return LevelEditor(range: range, unit: unit, value: value, theme: theme)
         }
     }
 }
@@ -251,6 +250,12 @@ private final class PathEditor: ParameterView {
     private let field: WellField
     private var path: String?
     private var hovering = false
+    /// Folders offered with one click, for an action that opens a folder.
+    private static let places: [(title: String, path: String)] = [
+        ("Home", "~"), ("Desktop", "~/Desktop"), ("Documents", "~/Documents"),
+        ("Downloads", "~/Downloads"), ("Applications", "/Applications"), ("Trash", "~/.Trash"),
+    ]
+    private var placeHover: Int?
 
     init(folder: Bool, value: String?, theme: EditorTheme) {
         self.folder = folder
@@ -266,13 +271,64 @@ private final class PathEditor: ParameterView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    private static let placeHeight: CGFloat = 30
+
     private var well: CGRect {
-        CGRect(x: 0, y: 0, width: bounds.width, height: bounds.height - EditorTheme.fieldHeight - 12)
+        let places = folder ? Self.placeHeight * 2 + 6 + 12 : 0
+        return CGRect(x: 0, y: 0, width: bounds.width, height: bounds.height - EditorTheme.fieldHeight - 12 - places)
+    }
+
+    /// The preset folders, three to a row under the drop well.
+    private func place(_ index: Int) -> CGRect {
+        let gap: CGFloat = 6
+        let width = (bounds.width - 2 * gap) / 3
+        let row = CGFloat(index / 3)
+        return CGRect(x: CGFloat(index % 3) * (width + gap), y: well.maxY + 12 + row * (Self.placeHeight + gap), width: width, height: Self.placeHeight)
+    }
+
+    private func placeIndex(at p: CGPoint) -> Int? {
+        guard folder else { return nil }
+        return Self.places.indices.first { place($0).contains(p) }
     }
 
     override func layout() {
         super.layout()
-        field.frame = CGRect(x: 0, y: well.maxY + 12, width: bounds.width, height: EditorTheme.fieldHeight)
+        let below = folder ? place(Self.places.count - 1).maxY : well.maxY
+        field.frame = CGRect(x: 0, y: below + 12, width: bounds.width, height: EditorTheme.fieldHeight)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let under = placeIndex(at: convert(event.locationInWindow, from: nil))
+        if under != placeHover {
+            placeHover = under
+            needsDisplay = true
+        }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        placeHover = nil
+        needsDisplay = true
+    }
+
+    override func mouseDown(with event: NSEvent) {}
+
+    override func mouseUp(with event: NSEvent) {
+        guard let i = placeIndex(at: convert(event.locationInWindow, from: nil)) else { return }
+        set(Self.places[i].path, typed: false)
+    }
+
+    override func demoPoint(_ name: String) -> CGPoint? {
+        if let i = Self.places.firstIndex(where: { $0.title == name }) {
+            let r = place(i)
+            return convert(CGPoint(x: r.midX, y: r.midY), to: nil)
+        }
+        return super.demoPoint(name)
     }
 
     private func set(_ value: String?, typed: Bool) {
@@ -305,6 +361,21 @@ private final class PathEditor: ParameterView {
         outline.lineCapStyle = .round
         outline.setLineDash([1, 7], count: 2, phase: 0)
         outline.stroke()
+        if folder {
+            let current = path.map { ($0 as NSString).expandingTildeInPath }
+            for (i, entry) in Self.places.enumerated() {
+                let rect = place(i)
+                let chosen = current == (entry.path as NSString).expandingTildeInPath
+                (chosen ? theme.accent : theme.well).setFill()
+                if placeHover == i, !chosen { theme.well.withAlphaComponent(min(theme.well.alphaComponent * 2, 1)).setFill() }
+                NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2).fill()
+                let label = NSAttributedString(string: entry.title, attributes: [
+                    .font: NSFont.systemFont(ofSize: 13, weight: .medium), .foregroundColor: chosen ? theme.onAccent : theme.text,
+                ])
+                let size = label.size()
+                label.draw(at: CGPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
+            }
+        }
         if let icon {
             let side = min(96, frame.height - 32)
             icon.draw(in: CGRect(x: frame.midX - side / 2, y: frame.midY - side / 2, width: side, height: side),
@@ -478,33 +549,45 @@ private final class KeystrokeRecorder: ParameterView, KeyRecording, EditorAnimat
 
 // MARK: Values
 
-/// A few fixed options side by side in a pill. The chosen one is marked by a thumb that
-/// glides to wherever it is picked.
+/// A fixed set of options as a grid of tiles, each an icon over its name. The chosen one is
+/// marked by an accent fill that glides to wherever it is picked. Unset means the first.
 private final class ChoiceEditor: ParameterView, EditorAnimated {
-    private let options: [String]
-    private var chosen: Int?
+    private let options: [ActionChoice]
+    private var chosen: Int
     private var thumb = GlidingRect()
     private var hover = GlidingRect()
+    private static let gap: CGFloat = 8
+    private static let minTileWidth: CGFloat = 92
 
-    init(options: [String], value: String?, theme: EditorTheme) {
+    init(options: [ActionChoice], value: String?, theme: EditorTheme) {
         self.options = options
-        chosen = value.flatMap(options.firstIndex(of:))
+        chosen = value.flatMap { v in options.firstIndex { $0.id == v } } ?? 0
         super.init(theme: theme)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    private var track: CGRect { CGRect(x: 0, y: 0, width: bounds.width, height: EditorTheme.fieldHeight) }
+    private var columns: Int {
+        max(1, min(options.count, Int((bounds.width + Self.gap) / (Self.minTileWidth + Self.gap))))
+    }
 
-    private func segment(_ index: Int) -> CGRect {
-        let inner = track.insetBy(dx: 4, dy: 4)
-        let width = inner.width / CGFloat(max(options.count, 1))
-        return CGRect(x: inner.minX + CGFloat(index) * width, y: inner.minY, width: width, height: inner.height)
+    private var rows: Int { (options.count + columns - 1) / columns }
+
+    private var tileSize: CGSize {
+        let width = (bounds.width - CGFloat(columns - 1) * Self.gap) / CGFloat(columns)
+        let height = min(76, max(50, (bounds.height - CGFloat(rows - 1) * Self.gap) / CGFloat(max(rows, 1))))
+        return CGSize(width: width, height: height)
+    }
+
+    private func tile(_ index: Int) -> CGRect {
+        let size = tileSize
+        let column = index % columns
+        let row = index / columns
+        return CGRect(x: CGFloat(column) * (size.width + Self.gap), y: CGFloat(row) * (size.height + Self.gap), width: size.width, height: size.height)
     }
 
     private func index(at p: CGPoint) -> Int? {
-        guard track.contains(p) else { return nil }
-        return options.indices.first { segment($0).insetBy(dx: 0, dy: -4).contains(p) }
+        options.indices.first { tile($0).contains(p) }
     }
 
     override func mouseDown(with event: NSEvent) {}
@@ -512,135 +595,67 @@ private final class ChoiceEditor: ParameterView, EditorAnimated {
     override func mouseUp(with event: NSEvent) {
         guard let i = index(at: convert(event.locationInWindow, from: nil)), i != chosen else { return }
         chosen = i
-        onChange?(options[i])
+        onChange?(options[i].id)
+    }
+
+    override func demoPoint(_ name: String) -> CGPoint? {
+        if let i = options.firstIndex(where: { $0.id == name }) {
+            let r = tile(i)
+            return convert(CGPoint(x: r.midX, y: r.midY), to: nil)
+        }
+        return super.demoPoint(name)
     }
 
     func tick(_ dt: Double, pointer: CGPoint?) {
         let under = pointer.flatMap { index(at: convert($0, from: nil)) }
-        if let under, under != chosen { hover.show(at: segment(under)) } else { hover.hide() }
-        if let chosen { thumb.show(at: segment(chosen)) } else { thumb.hide() }
+        if let under, under != chosen { hover.show(at: tile(under)) } else { hover.hide() }
+        thumb.show(at: tile(chosen))
         hover.step(dt)
         thumb.step(dt)
         if hover.isMoving || thumb.isMoving { needsDisplay = true }
     }
 
-    private func pill(_ rect: CGRect) -> NSBezierPath {
-        NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2)
+    private func shape(_ rect: CGRect) -> NSBezierPath {
+        NSBezierPath(roundedRect: rect, xRadius: 16, yRadius: 16)
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        theme.well.setFill()
-        pill(track).fill()
+        for i in options.indices {
+            theme.well.setFill()
+            shape(tile(i)).fill()
+        }
         if hover.isVisible {
             theme.well.withAlphaComponent(theme.well.alphaComponent * CGFloat(clamp01(hover.alpha.value))).setFill()
-            pill(hover.rect).fill()
+            shape(hover.rect).fill()
         }
         let marked = thumb.rect
         if thumb.isVisible {
             theme.accent.withAlphaComponent(CGFloat(clamp01(thumb.alpha.value))).setFill()
-            pill(marked).fill()
+            shape(marked).fill()
         }
         for (i, option) in options.enumerated() {
-            let frame = segment(i)
-            // A label takes the accent's contrasting color by as much as the thumb covers it.
-            let cover = thumb.isVisible ? clamp01(Double(frame.intersection(marked).width / frame.width) * thumb.alpha.value) : 0
+            let frame = tile(i)
+            // A tile takes the accent's contrasting color by as much as the thumb covers it.
+            let overlap = frame.intersection(marked)
+            let cover = thumb.isVisible && !overlap.isNull ? clamp01(Double(overlap.width * overlap.height / (frame.width * frame.height)) * thumb.alpha.value) : 0
             let color = theme.text.blended(withFraction: CGFloat(cover), of: theme.onAccent) ?? theme.text
-            let label = NSAttributedString(string: option, attributes: [
-                .font: NSFont.systemFont(ofSize: 15, weight: .medium), .foregroundColor: color,
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            paragraph.lineBreakMode = .byWordWrapping
+            let label = NSAttributedString(string: option.title, attributes: [
+                .font: NSFont.systemFont(ofSize: 11.5, weight: .medium), .foregroundColor: color, .paragraphStyle: paragraph,
             ])
-            let size = label.size()
-            label.draw(at: CGPoint(x: frame.midX - size.width / 2, y: frame.midY - size.height / 2))
+            // A long name takes a second line rather than being cut short.
+            let labelHeight = ceil(label.boundingRect(with: CGSize(width: frame.width - 8, height: 40), options: [.usesLineFragmentOrigin]).height)
+            let symbolName = option.symbol ?? "circle"
+            let config = NSImage.SymbolConfiguration(pointSize: 19, weight: .medium).applying(.init(hierarchicalColor: color))
+            let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?.withSymbolConfiguration(config)
+            let imageSize = image?.size ?? .zero
+            let block = imageSize.height + 5 + labelHeight
+            let top = frame.midY - block / 2
+            image?.draw(in: CGRect(x: frame.midX - imageSize.width / 2, y: top, width: imageSize.width, height: imageSize.height),
+                        from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            label.draw(with: CGRect(x: frame.minX + 4, y: top + imageSize.height + 5, width: frame.width - 8, height: labelHeight), options: [.usesLineFragmentOrigin])
         }
-    }
-}
-
-/// A slider drawn like the rest of the panel: a pill track that fills with the accent up
-/// to a round knob, which swells while it is held, and the value beside it.
-private final class LevelEditor: ParameterView, EditorAnimated {
-    private let range: ClosedRange<Double>
-    private let unit: String
-    private var value: Double
-    private var isSet: Bool
-    private var dragging = false
-    private var knob = Spring(11, SpringConfig(k: 520, c: 25))
-    /// The knob's place, which glides when the value jumps from a click on the track.
-    private var position: Spring
-
-    init(range: ClosedRange<Double>, unit: String, value: String?, theme: EditorTheme) {
-        self.range = range
-        self.unit = unit
-        isSet = value.flatMap(Double.init) != nil
-        self.value = value.flatMap(Double.init) ?? (range.lowerBound + range.upperBound) / 2
-        position = Spring(0, SpringConfig(k: 700, c: 44))
-        super.init(theme: theme)
-        position.snap(fraction)
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    private var fraction: Double { (value - range.lowerBound) / (range.upperBound - range.lowerBound) }
-    private var track: CGRect { CGRect(x: 14, y: EditorTheme.fieldHeight / 2 - 5, width: bounds.width - 14 - 86, height: 10) }
-
-    private func set(from event: NSEvent) {
-        let x = convert(event.locationInWindow, from: nil).x
-        let f = Double(min(max((x - track.minX) / track.width, 0), 1))
-        value = (range.lowerBound + f * (range.upperBound - range.lowerBound)).rounded()
-        isSet = true
-        position.target = fraction
-        needsDisplay = true
-        onChange?(String(Int(value)))
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        dragging = true
-        set(from: event)
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        set(from: event)
-        // While it is held the knob keeps up with the pointer exactly.
-        position.snap(fraction)
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        dragging = false
-    }
-
-    func tick(_ dt: Double, pointer: CGPoint?) {
-        let over = pointer.map { p -> Bool in
-            let local = convert(p, from: nil)
-            return abs(local.y - track.midY) < 18 && local.x > track.minX - 14 && local.x < track.maxX + 14
-        } ?? false
-        knob.target = dragging ? 15 : (over ? 13 : 11)
-        knob.step(dt)
-        position.step(dt)
-        if abs(knob.value - knob.target) > 0.02 || abs(position.value - position.target) > 0.0005 { needsDisplay = true }
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let track = self.track
-        let x = track.minX + track.width * CGFloat(clamp01(position.value))
-        theme.well.setFill()
-        NSBezierPath(roundedRect: track, xRadius: 5, yRadius: 5).fill()
-        (isSet ? theme.accent : theme.secondary).setFill()
-        NSBezierPath(roundedRect: CGRect(x: track.minX, y: track.minY, width: max(x - track.minX, 10), height: track.height), xRadius: 5, yRadius: 5).fill()
-        let r = CGFloat(knob.value)
-        let disc = CGRect(x: x - r, y: track.midY - r, width: 2 * r, height: 2 * r)
-        NSGraphicsContext.saveGraphicsState()
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.28)
-        shadow.shadowBlurRadius = 5
-        shadow.shadowOffset = CGSize(width: 0, height: -1.5)
-        shadow.set()
-        NSColor.white.setFill()
-        NSBezierPath(ovalIn: disc).fill()
-        NSGraphicsContext.restoreGraphicsState()
-
-        let label = NSAttributedString(string: "\(Int(value))\(unit)", attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 16, weight: .medium),
-            .foregroundColor: isSet ? theme.text : theme.secondary,
-        ])
-        let size = label.size()
-        label.draw(at: CGPoint(x: bounds.width - size.width - 4, y: track.midY - size.height / 2))
     }
 }

@@ -4,7 +4,7 @@ import simd
 extension DemoDriver {
     /// Builds a script from steps that each take some time, so a step can be added without
     /// renumbering the ones after it.
-    private struct Builder {
+    struct Builder {
         var script = Script(path: [(0, .at(V2(0, 0)))], events: [], marks: [])
         var time = 0.0
 
@@ -265,8 +265,8 @@ extension DemoDriver {
         b.wait(0.4)
         b.mark("action-keystroke")
 
-        b.editor(3, wait: 0.6)                              // Appearance: System, Light, Dark
-        b.panelMove("setting:0.5,0.07")
+        b.editor(3, wait: 0.6)                              // Screenshot: a few kinds, as tiles
+        b.panelMove("setting:window")
         b.wait(0.3)
         b.mark("action-choice-hover")
         b.fire(.windowClick)
@@ -274,16 +274,13 @@ extension DemoDriver {
         b.wait(0.5)
         b.mark("action-choice")
 
-        b.editor(4, wait: 0.6)                              // Set Volume
-        b.panelMove("setting:0.3,0.065")
-        b.wait(0.2)
-        b.fire(.windowPress)
-        b.panelMove("setting:0.62,0.065", 0.5)
-        b.wait(0.2)
-        b.mark("action-level-drag")
-        b.fire(.windowRelease)
-        b.wait(0.4)
-        b.mark("action-level")
+        b.editor(4, wait: 0.6)                              // Move Window: every layout
+        b.mark("action-layouts")
+        b.panelMove("setting:rightTwoThirds")
+        b.wait(0.3)
+        b.fire(.windowClick)
+        b.wait(0.5)
+        b.mark("action-layout")
 
         b.editor(5, wait: 0.6)                              // Open File
         b.mark("action-file")

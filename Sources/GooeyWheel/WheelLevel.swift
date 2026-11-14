@@ -37,19 +37,36 @@ enum EditOption: String, CaseIterable {
 enum BubbleKey: Hashable {
     case item(UUID)
     case option(EditOption)
+    case choice(UUID, String)
 }
 
 /// What one bubble stands for.
 enum Entry {
     case item(WheelItem)
     case option(EditOption)
+    /// One of the choices a picker item opens into, such as a sound output.
+    case choice(UUID, LiveChoice)
 
     var key: BubbleKey {
         switch self {
         case .item(let item): return .item(item.id)
         case .option(let option): return .option(option)
+        case .choice(let id, let choice): return .choice(id, choice.id)
         }
     }
+
+    var choice: LiveChoice? {
+        if case .choice(_, let choice) = self { return choice }
+        return nil
+    }
+
+    /// What the item's action shows or changes beyond running once.
+    var control: ActionControl? {
+        item?.actionID.flatMap(ActionCatalog.action)?.control
+    }
+
+    /// Opens into a ring of its own in normal use: a folder, or a picker's choices.
+    var opens: Bool { isFolder || control == .picker }
 
     var item: WheelItem? {
         if case .item(let item) = self { return item }
@@ -61,8 +78,8 @@ enum Entry {
         return nil
     }
 
-    var title: String { item?.title ?? option?.title ?? "" }
-    var symbol: String { item?.symbol ?? option?.symbol ?? "questionmark" }
+    var title: String { item?.title ?? option?.title ?? choice?.title ?? "" }
+    var symbol: String { item?.symbol ?? option?.symbol ?? choice?.symbol ?? "questionmark" }
     var isFolder: Bool { item?.isFolder ?? false }
 }
 
@@ -74,6 +91,10 @@ final class Level {
         case ring(Container)
         /// The edit options around one item. The hub is the item.
         case edit(UUID)
+        /// A picker item's choices, found when it opens. The hub is the item.
+        case picker(UUID)
+        /// A slider item turned into a bar. The hub is the bar, and the level has no bubbles.
+        case control(UUID)
     }
 
     enum Role {
@@ -146,6 +167,34 @@ final class Level {
         if case .edit = kind { return true }
         return false
     }
+
+    var isControl: Bool {
+        if case .control = kind { return true }
+        return false
+    }
+
+    /// The item an edit ring, picker or bar was opened from.
+    var itemID: UUID? {
+        switch kind {
+        case .edit(let id), .picker(let id), .control(let id): return id
+        case .ring(.folder(let id)): return id
+        case .ring(.root): return nil
+        }
+    }
+
+    /// Which way a bar runs, as a unit vector from its low end to its high end.
+    var barAxis = V2(1, 0)
+    /// A bar's length when fully open.
+    var barLength = 0.0
+    /// The level a bar shows, gliding to each new reading.
+    var barShown = Spring(0, SpringConfig.critical(k: 900))
+    /// Where a bar goes back to when it closes: its bubble's place in the ring.
+    var barHome = V2(0, 0)
+    /// How far past an end a bar is pulled, in points: positive past its high end, negative
+    /// past its low end. It springs back when let go.
+    var barStretch = Spring(0, SpringConfig(k: 240, c: 19))
+    /// 1 while the bar is held, when it swells a little under the hand.
+    var barGrow = Spring(0, SpringConfig(k: 380, c: 24))
 
     /// The hub's resting radius. An item being edited keeps its size as the hub.
     func hubRadius(_ t: Tuning) -> Double {
@@ -243,6 +292,11 @@ final class Bubble {
     weak var sink: Bubble?
     /// The largest a bubble removed from its ring gets on the way out.
     var leaveRadius: Double?
+    /// A slider's level as its rim shows it, gliding to each new reading.
+    var levelShown = Spring(0, SpringConfig.critical(k: 380))
+    var levelKnown = false
+    /// Sideways shake, in points, when a bubble refuses to be chosen.
+    var shake = Spring(0, SpringConfig(k: 1500, c: 18))
 
     // Configuration
     /// 1 while the remove or edit badge is out.

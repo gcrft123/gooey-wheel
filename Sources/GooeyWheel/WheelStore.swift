@@ -29,8 +29,9 @@ final class WheelStore {
         self.url = url
         if let url, let data = try? Data(contentsOf: url),
            let file = try? JSONDecoder().decode(File.self, from: data) {
-            root = file.items
+            root = file.items.map(ActionMigration.migrate)
             savedColors = file.savedColors ?? []
+            if root != file.items { save() }
         } else {
             root = WheelItem.defaults
             save()

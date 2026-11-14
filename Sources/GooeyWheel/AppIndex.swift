@@ -66,7 +66,10 @@ extension WheelItem {
         case .application:
             return AppIndex.shared.app(argument)?.name
         case .file, .folder:
-            let name = (argument as NSString).lastPathComponent
+            // The name Finder shows: the user's name for the home folder, "Trash" for ~/.Trash.
+            let path = (argument as NSString).expandingTildeInPath
+            if path == (NSHomeDirectory() as NSString).appendingPathComponent(".Trash") { return "Trash" }
+            let name = FileManager.default.fileExists(atPath: path) ? FileManager.default.displayName(atPath: path) : (path as NSString).lastPathComponent
             return name.isEmpty ? nil : name
         case .url:
             return URL(string: argument)?.host

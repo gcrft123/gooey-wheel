@@ -58,6 +58,26 @@ final class WheelSim {
     var clampCenter: (V2) -> V2 = { $0 }
     var onHover: (() -> Void)?
     var onSelect: ((WheelItem) -> Void)?
+    /// One of a picker's choices was made and the wheel is closing.
+    var onChoose: ((LiveChoice, WheelItem) -> Void)?
+    /// A level crossed a detent, or a stepper stepped: the moment for a haptic tick.
+    var onDetent: (() -> Void)?
+    /// Something chosen can't be done here.
+    var onRefuse: (() -> Void)?
+
+    // In-item controls
+    /// Where the state of items' actions comes from.
+    weak var controls: ControlSource?
+    var liveStates: [UUID: LiveState] = [:]
+    /// The bar a slider has turned into, while it is open.
+    var barDrive: BarDrive?
+    /// Part of a scroll not yet a whole step of a stepper.
+    var scrollCarry = 0.0
+    /// When to read pickers' choices and items' states again.
+    var pendingRefresh: Double?
+    /// When each slider was last changed from here.
+    var adjustedAt: [UUID: Double] = [:]
+    private var liveRefreshAt = 0.0
     /// The wheel's contents changed, or a change was refused.
     var onEdit: ((EditFeedback) -> Void)?
     /// A panel started to open, its save button was pressed, and it started to close.
@@ -119,11 +139,17 @@ final class WheelSim {
         dropRadius.config = t.dropSize
         config = ConfigState()
 
+        barDrive = nil
+        scrollCarry = 0
+        pendingRefresh = nil
+
         nextID += 1
         let root = Level(id: nextID, kind: .ring(.root), entries: entries(for: .ring(.root)), symbol: nil, color: nil, center: c, tuning: t)
         levels.append(root)
         lastCenter = c
         spawn(root, delay: 0.02)
+        refreshLive()
+        liveRefreshAt = time + 0.5
     }
 
     func dismiss() {
@@ -149,12 +175,15 @@ final class WheelSim {
             mode = .sticky
             back()
         } else if let b = hoveredBubble {
-            if b.entry.isFolder {
+            if b.entry.opens {
                 mode = .sticky
                 enter(b)
             } else {
                 select(b)
             }
+        } else if levels.last?.isControl == true {
+            // Letting go ends the adjustment and closes the wheel.
+            dismiss()
         } else if time - openedAt < tuning.pinTapDuration {
             mode = .sticky
         } else {
@@ -165,10 +194,21 @@ final class WheelSim {
     func click() {
         guard phase == .open, let level = levels.last else { return }
         refreshHover()
-        if hoverBack {
+        if level.isControl {
+            // A bar is done with by clicking anywhere but the parent ring.
+            if hoverBack { back() } else { dismiss() }
+        } else if hoverBack {
             back()
         } else if let b = hoveredBubble {
-            if b.entry.isFolder { enter(b) } else { select(b) }
+            if b.entry.opens {
+                enter(b)
+            } else if b.entry.control == .slider, isAvailable(b) {
+                // Pressing on a slider opens its bar under the button: dragging adjusts it and
+                // letting go closes it again. A press without a drag leaves it open.
+                openBar(b, springLoaded: true)
+            } else {
+                select(b)
+            }
         } else if simd_distance(cursor, level.center) < tuning.deadZoneEnter + 8, levels.count > 1 {
             back()
         } else {
@@ -205,9 +245,35 @@ final class WheelSim {
     }
 
     private func select(_ b: Bubble) {
+        if b.entry.choice != nil {
+            choose(b)
+            return
+        }
         guard let item = b.entry.item else { return }
+        guard isAvailable(b) else {
+            refuse(b)
+            return
+        }
+        switch b.entry.control {
+        case .slider?:
+            mode = .sticky
+            openBar(b, springLoaded: false)
+            return
+        case .readout?:
+            // There is nothing to do, only something to read.
+            b.radius.velocity += 200
+            onHover?()
+            return
+        default:
+            break
+        }
         onSelect?(item)
         b.radius.velocity += 240
+        closeAfterChoosing(b)
+    }
+
+    /// The wheel closes around a chosen bubble, which holds its color a moment longer.
+    func closeAfterChoosing(_ b: Bubble) {
         phase = .closing
         labelHeld = true
         hovered = nil
@@ -225,13 +291,32 @@ final class WheelSim {
     /// bubble's item. The bubble becomes the new hub where it stands, and the ring it came from
     /// shrinks behind it.
     func enter(_ b: Bubble, editing: Bool = false) {
-        guard let parent = levels.last, let item = b.entry.item, editing || item.isFolder else { return }
+        guard let item = b.entry.item else { return }
+        if editing {
+            enter(b, as: .edit(item.id))
+        } else if item.isFolder {
+            enter(b, as: .ring(.folder(item.id)))
+        } else if b.entry.control == .picker {
+            guard !entries(for: .picker(item.id)).isEmpty else {
+                refuse(b)
+                return
+            }
+            enter(b, as: .picker(item.id))
+        }
+    }
+
+    /// Opens a level of `kind` from a bubble. A bar is placed by its caller.
+    func enter(_ b: Bubble, as kind: Level.Kind, center: V2? = nil) {
+        guard let parent = levels.last, let item = b.entry.item else { return }
         let t = tuning
+        let editing = kind == .edit(item.id)
+        let isBar: Bool
+        if case .control = kind { isBar = true } else { isBar = false }
         let phi = parent.angle(b.slot)
-        var home = parent.center + t.ringRadius * V2(cos(phi), sin(phi))
+        var home = center ?? parent.center + t.ringRadius * V2(cos(phi), sin(phi))
 
         // If the new ring would run off the screen, slide the whole wheel over.
-        let shift = clampCenter(home) - home
+        let shift = isBar ? V2(0, 0) : clampCenter(home) - home
         if simd_length(shift) > 0.5 {
             for level in levels { level.center += shift }
             home += shift
@@ -244,9 +329,8 @@ final class WheelSim {
         parent.hubHalfH.config = t.hubClose
 
         nextID += 1
-        let kind: Level.Kind = editing ? .edit(item.id) : .ring(.folder(item.id))
-        let child = Level(id: nextID, kind: kind, entries: entries(for: kind), symbol: item.symbol, color: item.color, center: home, tuning: t)
-        if parentStyle == .shrink {
+        let child = Level(id: nextID, kind: kind, entries: entries(for: kind), symbol: symbol(for: b), color: item.color, center: home, tuning: t)
+        if parentStyle == .shrink, !isBar {
             child.arcMid = phi
             child.arcLimit = t.childArc
             child.reversed = cos(phi) < -0.01
@@ -255,10 +339,10 @@ final class WheelSim {
         // while the bubble itself retreats to its place in the shrunken ring.
         child.hubPos.snap(b.pos.value)
         child.hubPos.velocity = b.pos.velocity
-        child.hubHalfW.snap(editing ? 20 : 16)
-        child.hubHalfH.snap(editing ? 20 : 16)
+        child.hubHalfW.snap(isBar ? max(b.radius.value, 16) : editing ? 20 : 16)
+        child.hubHalfH.snap(isBar ? max(b.radius.value, 16) : editing ? 20 : 16)
         // In normal use the bubble is already filled when it opens. While configuring it may not be.
-        child.hubTint.snap(config.active ? clamp01(b.tint.value) : 1)
+        child.hubTint.snap(config.active ? clamp01(b.tint.value) : isBar ? 0 : 1)
         levels.append(child)
         lastCenter = home
 
@@ -271,6 +355,8 @@ final class WheelSim {
         resetLabel()
         adoptDragged(into: child)
         spawn(child, delay: 0.05)
+        // The new ring's items show their state from their first frame.
+        refreshLive()
     }
 
     func back() {
@@ -278,7 +364,17 @@ final class WheelSim {
         let t = tuning
         let child = levels.removeLast()
         child.role = .dying
-        retreat(child, hubDelay: 0)
+        if child.isControl {
+            // A bar flows back to its bubble's place and gives way to the bubble there.
+            barDrive = nil
+            child.center = child.barHome
+            child.retreating = true
+            child.hubCloseAt = time + 0.12
+            child.hubHalfW.config = t.hubClose
+            child.hubHalfH.config = t.hubClose
+        } else {
+            retreat(child, hubDelay: 0)
+        }
         dying.append(child)
 
         let parent = levels[levels.count - 1]
@@ -293,7 +389,9 @@ final class WheelSim {
         hovered = nil
         hoverBack = false
         dwell = 0
-        armed = true
+        // After a bar the cursor is wherever the adjustment left it. The ring waits for it to move.
+        armed = !child.isControl
+        armOrigin = cursor
         resetLabel()
     }
 
@@ -359,12 +457,18 @@ final class WheelSim {
 
     // MARK: Contents
 
-    private func entries(for kind: Level.Kind) -> [Entry] {
+    func entries(for kind: Level.Kind) -> [Entry] {
         switch kind {
         case .ring(let container):
             return displayItems(in: container).map(Entry.item)
         case .edit(let id):
             return store.item(id).map { EditOption.options(for: $0).map(Entry.option) } ?? []
+        case .picker(let id):
+            guard let item = store.item(id), let controls else { return [] }
+            // A ring of a folder's size at most.
+            return controls.choices(item).prefix(WheelLimits.folderItems).map { Entry.choice(id, $0) }
+        case .control:
+            return []
         }
     }
 
@@ -375,7 +479,7 @@ final class WheelSim {
             return true
         case .ring(.folder(let id)):
             return store.item(id)?.isFolder == true
-        case .edit(let id):
+        case .edit(let id), .picker(let id), .control(let id):
             return store.location(of: id)?.container == parent?.container
         }
     }
@@ -390,7 +494,7 @@ final class WheelSim {
         for level in levels {
             level.entries = entries(for: level.kind)
             switch level.kind {
-            case .ring(.folder(let id)), .edit(let id):
+            case .ring(.folder(let id)), .edit(let id), .picker(let id), .control(let id):
                 level.symbol = store.item(id)?.symbol
                 level.color = store.item(id)?.color
             case .ring(.root):
@@ -403,7 +507,7 @@ final class WheelSim {
         reopenBlock = nil
     }
 
-    private func reconcile(_ level: Level) {
+    func reconcile(_ level: Level) {
         var present = Set<BubbleKey>()
         for b in bubbles where b.level === level && !b.leaving {
             if let slot = level.slot(of: b.key) {
@@ -454,6 +558,11 @@ final class WheelSim {
             return
         }
         let t = tuning
+        if phase == .open, let level = levels.last, level.isControl {
+            // A bar has nothing to point at. Only the parent ring, to go back.
+            setHover(nil, back: overParentRing(cursor))
+            return
+        }
         var next: Int?
         var nextBack = false
         if phase == .open, let level = levels.last, level.count > 0 {
@@ -478,13 +587,16 @@ final class WheelSim {
         hovered = next
         hoverBack = nextBack
         dwell = 0
+        scrollCarry = 0
         if nextBack {
             setLabel("Back")
             onHover?()
         } else if let h = next, let b = currentBubble(h) {
-            setLabel(b.entry.title)
+            setLabel(labelText(for: b))
             dropColor = bubbleColor(b)
             onHover?()
+        } else {
+            refreshLabel()
         }
     }
 
@@ -494,8 +606,18 @@ final class WheelSim {
         labelFades[1].snap(0)
     }
 
-    private func setLabel(_ title: String) {
+    /// Shows `title` in the hub. `instant` replaces the text in place when only the reading
+    /// after the name changed, as a slider's level does while it moves.
+    func setLabel(_ text: String, instant: Bool = false) {
+        let title = wrapLabel(text)
         guard labelTitles[labelSlot] != title || labelFades[labelSlot].target < 1 else { return }
+        let name = { (text: String) in
+            text.components(separatedBy: " · ").first?.components(separatedBy: "\n").first ?? text
+        }
+        if instant, labelFades[labelSlot].target >= 1, name(labelTitles[labelSlot]) == name(title) {
+            labelTitles[labelSlot] = title
+            return
+        }
         if labelMix.value < 0.05 {
             labelTitles[labelSlot] = title
             labelFades[labelSlot].snap(1)
@@ -510,7 +632,7 @@ final class WheelSim {
 
     /// 0 to 1 while the cursor rests on the hovered folder, for the bud that swells before it opens.
     var folderDwellProgress: Double {
-        guard !config.active, let b = hoveredBubble, b.entry.isFolder else { return 0 }
+        guard !config.active, let b = hoveredBubble, b.entry.opens else { return 0 }
         return clamp01(dwell / tuning.folderDwell)
     }
 
@@ -529,7 +651,7 @@ final class WheelSim {
             }
         }
 
-        if let b = hoveredBubble, b.entry.isFolder, reopenBlock != b.key {
+        if let b = hoveredBubble, b.entry.opens, reopenBlock != b.key {
             // Measured against the bubble's resting place, so a cursor passing along the inside
             // of the ring doesn't open a folder that leaned toward it.
             let a = level.angle(b.slot)
@@ -560,11 +682,24 @@ final class WheelSim {
         updateDwell(dt)
         stepConfiguration(dt)
         stepEditor(dt)
+        stepBar()
+        if phase == .open, time >= liveRefreshAt || pendingRefresh.map({ time >= $0 }) == true {
+            if pendingRefresh != nil { refreshChoices() }
+            pendingRefresh = nil
+            refreshLive()
+            liveRefreshAt = time + 0.5
+        }
         let t = tuning
         let ring = t.ringRadius
         let active = phase == .open ? levels.last : nil
         let pointing = hovered != nil || hoverBack
-        let showLabel = (phase == .open && (pointing || config.holdsLabel) && showsHubLabel) || (phase == .closing && labelHeld)
+        // A picker's hub reads out what it is about, such as the track playing.
+        let readsOut = levels.last.map { level -> Bool in
+            guard case .picker(let id) = level.kind else { return false }
+            return live(store.item(id))?.detail?.isEmpty == false
+        } ?? false
+        let showLabel = (phase == .open && (pointing || config.holdsLabel || readsOut) && showsHubLabel && active?.isControl != true)
+            || (phase == .closing && labelHeld)
 
         labelMix.target = showLabel ? 1 : 0
         labelMix.step(dt)
@@ -587,7 +722,7 @@ final class WheelSim {
             level.scale.step(dt)
             level.alpha.step(dt)
 
-            let lean = level === active ? clampLength((cursor - level.center) * 0.045, 4) : V2(0, 0)
+            let lean = level === active && !level.isControl ? clampLength((cursor - level.center) * 0.045, 4) : V2(0, 0)
             level.hubPos.target = level.center + lean
             level.hubPos.step(dt)
             let hubP = level.hubPos.value
@@ -602,14 +737,32 @@ final class WheelSim {
                 // Aim below zero: a spring only approaches its target, and a speck would linger at the end.
                 level.hubHalfW.target = -4
                 level.hubHalfH.target = -4
+            } else if level.isControl {
+                if let id = level.itemID, let value = live(store.item(id))?.level { level.barShown.target = value }
+                // While the cursor drives the fill it keeps up exactly; jumps from a scroll glide.
+                if barDrive?.engaged == true, level === levels.last, abs(level.barShown.target - level.barShown.value) < 0.03 {
+                    level.barShown.snap(level.barShown.target)
+                }
+                level.barShown.step(dt)
+                if level.role == .dying || level !== levels.last {
+                    level.barStretch.target = 0
+                    level.barGrow.target = 0
+                }
+                level.barStretch.step(dt)
+                level.barGrow.step(dt)
+                let half = barTarget(level)
+                level.hubHalfW.target = half.x
+                level.hubHalfH.target = half.y
             } else if level.role == .ghost {
                 level.hubHalfW.target = t.hubRadius * level.scale.value
                 level.hubHalfH.target = t.hubRadius * level.scale.value
             } else if showLabel, level === levels.last {
                 level.hubHalfW.config = t.hubMorph
                 level.hubHalfH.config = t.hubMorph
-                level.hubHalfW.target = max(t.pillHalfHeight + 6, labelWidth(labelTitles[labelSlot]) / 2 + t.pillPadding)
-                level.hubHalfH.target = t.pillHalfHeight
+                let label = labelSize(labelTitles[labelSlot])
+                level.hubHalfW.target = max(t.pillHalfHeight + 6, label.width / 2 + t.pillPadding)
+                // A second line makes the pill taller by one line.
+                level.hubHalfH.target = t.pillHalfHeight + Double(label.lines - 1) * 8.5
             } else {
                 let r = level.hubRadius(t) + (level === active ? hubSwell : 0)
                 level.hubHalfW.target = r
@@ -631,6 +784,12 @@ final class WheelSim {
                 guard time >= b.activateAt else { continue }
                 b.active = true
                 b.radius.snap(t.bubbleRadius * 0.45 * level.bubbleScale(t))
+                // A slider's rim fills to its level as the bubble comes out.
+                if b.entry.control == .slider, let value = live(b.entry.item)?.level {
+                    b.levelShown.snap(0)
+                    b.levelShown.target = value
+                    b.levelKnown = true
+                }
             }
             let dist = simd_distance(b.pos.value, hubP)
             if b.leaving, time >= b.leaveAt {
@@ -680,6 +839,8 @@ final class WheelSim {
             b.tint.step(dt)
             b.lift.step(dt)
             b.push.step(dt)
+            b.levelShown.step(dt)
+            b.shake.step(dt)
             stepBadge(b, dt)
         }
         bubbles.removeAll { b in
@@ -692,7 +853,7 @@ final class WheelSim {
         }
 
         // Droplet
-        if let level = active, !editorIsOpen {
+        if let level = active, !editorIsOpen, !level.isControl {
             let v = cursor - level.center
             let d = simd_length(v)
             let hubHalf = V2(max(level.hubHalfW.value, 0), max(level.hubHalfH.value, 0))

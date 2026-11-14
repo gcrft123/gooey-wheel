@@ -21,6 +21,9 @@ final class LogiButton {
     /// The MX Master 4's thumb panel.
     static let thumbPanel: UInt16 = 0x01A0
 
+    /// One that reads no button and only carries requests to the mouse, for the self-test.
+    static func withoutButton() -> LogiButton { LogiButton(controlID: nil) }
+
     /// Called with true when the button goes down and false when it comes up.
     var onChange: ((Bool) -> Void)?
     /// Called in place of `onChange(false)` for a release the mouse never reported, recovered
@@ -30,6 +33,11 @@ final class LogiButton {
     /// Called when access has been granted but macOS still refuses the device, which a fresh
     /// launch of the app clears.
     var onNeedsRelaunch: (() -> Void)?
+    /// Called when a mouse has finished connecting, once its features are known, and when one goes.
+    var onLinksChanged: (() -> Void)?
+    /// Called with each HID++ notification from a feature other than the button's, from either
+    /// channel: the link, the feature's ID, the event number, and the event's parameter bytes.
+    var onNotification: ((LogiLink, UInt16, UInt8, [UInt8]) -> Void)?
     private(set) var status = Status.searching {
         didSet {
             guard status != oldValue else { return }
@@ -38,16 +46,17 @@ final class LogiButton {
         }
     }
 
-    fileprivate let controlID: UInt16
+    /// The button read, or nil to read none.
+    fileprivate let controlID: UInt16?
     private let manager: IOHIDManager
-    private var links: [Link] = []
+    private(set) var links: [LogiLink] = []
     private let vendor = VendorChannel()
     private var unopened: [IOHIDDevice] = []
     private var retryTimer: Timer?
     private var reportedFailure = false
     private var askedForRelaunch = false
 
-    init(controlID: UInt16) {
+    init(controlID: UInt16?) {
         self.controlID = controlID
         manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
     }
@@ -112,7 +121,7 @@ final class LogiButton {
             return
         }
         unopened.removeAll { $0 == device }
-        let link = Link(device: device, owner: self)
+        let link = LogiLink(device: device, owner: self)
         links.append(link)
         link.setUp()
         vendor.refresh()
@@ -125,6 +134,7 @@ final class LogiButton {
             TriggerDebug.log("device removed: \(link.name), pressed=\(link.pressed)")
             // A button held while the mouse disconnects would otherwise stay down forever.
             if link.pressed { onChange?(false) }
+            onLinksChanged?()
         }
         refreshStatus()
     }
@@ -158,29 +168,56 @@ final class LogiButton {
     fileprivate func missedRelease() {
         if let onMissedRelease { onMissedRelease() } else { onChange?(false) }
     }
+
+    fileprivate func linkChanged() {
+        onLinksChanged?()
+    }
+
+    fileprivate func notified(_ link: LogiLink, _ feature: UInt16, _ event: UInt8, _ params: [UInt8]) {
+        onNotification?(link, feature, event, params)
+    }
 }
 
-/// One opened mouse.
-private final class Link {
+/// One opened Logitech device, and the one way to send it HID++ requests: they wait their turn
+/// in a queue, so the button's requests and everything else's share it safely.
+final class LogiLink {
     /// Marks this app's requests so their replies can be told apart from notifications, which carry 0.
     private static let softwareID: UInt8 = 0x0B
     /// "Reprogrammable controls v4", the HID++ feature that lists and diverts buttons.
     private static let controlsFeature: UInt16 = 0x1B04
+    /// The features looked up once a mouse has connected. Others are looked up when first used.
+    static let knownFeatures: [UInt16] = [0x1004, 0x1814, 0x1815, 0x19B0, 0x2111, 0x2121, 0x2150, 0x2201]
 
     let device: IOHIDDevice
     let name: String
+    /// Whether the device presents itself as a mouse. A Logitech keyboard answers HID++ as well.
+    let isMouse: Bool
     private unowned let owner: LogiButton
     private let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 64)
     private var controlsIndex: UInt8 = 0
+    /// Each feature's index on this device, 0 for one it doesn't have, as the root feature said.
+    private(set) var features: [UInt16: UInt8] = [:]
+    private var featureByIndex: [UInt8: UInt16] = [:]
+    /// Set once `knownFeatures` have all been looked up.
+    private(set) var featuresKnown = false
+    private var discovering = false
     private var flagsBefore: UInt8?
     /// The second reporting byte before this app changed it. Bit 0 is analytics reporting.
     private var flags2Before: UInt8 = 0
     /// Set once this app has turned analytics reporting on, so quitting can turn it back off.
     private var analyticsOn = false
     private var pending: (feature: UInt8, address: UInt8, token: Int, completion: ([UInt8]?) -> Void)?
+    private struct Request {
+        let feature: UInt8
+        let function: UInt8
+        let params: [UInt8]
+        /// False for a request whose reply isn't waited for, such as switching host, which gets none.
+        let awaitsReply: Bool
+        let completion: ([UInt8]?) -> Void
+    }
     /// Requests wait their turn: replies are matched to the one request in flight, so one sent
     /// while another is waiting would otherwise be dropped.
-    private var queued: [(feature: UInt8, function: UInt8, params: [UInt8], completion: ([UInt8]?) -> Void)] = []
+    private var queued: [Request] = []
     private var token = 0
     private(set) var ready = false
     private var tracker = ButtonTracker()
@@ -190,9 +227,12 @@ private final class Link {
         self.device = device
         self.owner = owner
         name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "Logitech mouse"
+        let page = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsagePageKey as CFString) as? Int
+        let usage = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsageKey as CFString) as? Int
+        isMouse = page == kHIDPage_GenericDesktop && usage == kHIDUsage_GD_Mouse
         IOHIDDeviceRegisterInputReportCallback(device, buffer, 64, { context, _, _, _, _, report, length in
             guard let context else { return }
-            let link = Unmanaged<Link>.fromOpaque(context).takeUnretainedValue()
+            let link = Unmanaged<LogiLink>.fromOpaque(context).takeUnretainedValue()
             link.handle(UnsafeBufferPointer(start: report, count: length))
         }, Unmanaged.passUnretained(self).toOpaque())
     }
@@ -202,21 +242,39 @@ private final class Link {
         buffer.deallocate()
     }
 
-    private var controlBytes: [UInt8] { [UInt8(owner.controlID >> 8), UInt8(owner.controlID & 0xFF)] }
+    private var controlBytes: [UInt8] {
+        let control = owner.controlID ?? 0
+        return [UInt8(control >> 8), UInt8(control & 0xFF)]
+    }
 
     func setUp() {
+        guard owner.controlID != nil else {
+            discover()
+            return
+        }
         // Feature 0 is the root: ask it where the controls feature lives on this device.
         request(0x00, 0, [UInt8(Self.controlsFeature >> 8), UInt8(Self.controlsFeature & 0xFF)]) { [weak self] reply in
-            guard let self, let reply, reply[0] != 0 else { return }
+            guard let self else { return }
+            guard let reply, reply[0] != 0 else {
+                self.discover()
+                return
+            }
             self.controlsIndex = reply[0]
             // Function 2 reads the button's current reporting. It fails if the mouse has no such button.
             self.request(self.controlsIndex, 2, self.controlBytes) { [weak self] reporting in
                 guard let self, let reporting else {
                     NSLog("LogiButton: \(self?.name ?? "device") has no control 0x%04x", self?.owner.controlID ?? 0)
+                    self?.discover()
                     return
                 }
-                self.flagsBefore = reporting[2]
-                self.flags2Before = reporting[5]
+                // The flags as they were before this app ever diverted the button, kept across
+                // launches: after a crash the mouse still reports this app's divert.
+                let key = "ReportingBefore." + self.name
+                let saved = UserDefaults.standard.array(forKey: key) as? [Int]
+                let before = saved.map { $0.map(UInt8.init(truncatingIfNeeded:)) } ?? [reporting[2], reporting[5]]
+                if saved == nil { UserDefaults.standard.set(before.map(Int.init), forKey: key) }
+                self.flagsBefore = before[0]
+                self.flags2Before = before[1]
                 self.divert()
             }
         }
@@ -240,50 +298,165 @@ private final class Link {
             if reply != nil { self.analyticsOn = analytics || self.analyticsOn }
             if reply != nil, !self.ready {
                 self.ready = true
-                NSLog("LogiButton: reading control 0x%04x on \(self.name)", self.owner.controlID)
+                NSLog("LogiButton: reading control 0x%04x on \(self.name)", self.owner.controlID ?? 0)
                 if TriggerDebug.enabled { self.mapFeatures() }
             }
             self.owner.refreshStatus()
+            if reply != nil || !analytics { self.discover() }
         }
     }
 
-
-    /// Undoes what this app turned on. 0x02 is a setting's valid bit with the setting off.
-    func restore() {
-        guard ready, let before = flagsBefore else { return }
-        let undivert = before & 0x01 == 0
-        let unanalytics = analyticsOn && flags2Before & 0x01 == 0
-        guard undivert || unanalytics else { return }
-        send(controlsIndex, 3, controlBytes + [undivert ? 0x02 : 0, 0, 0, unanalytics ? 0x02 : 0])
+    /// Looks up where `knownFeatures` live on a mouse, once, after the button is set up so the
+    /// button isn't kept waiting.
+    private func discover() {
+        guard isMouse, !discovering else { return }
+        discovering = true
+        if controlsIndex != 0 { remember(Self.controlsFeature, at: controlsIndex) }
+        for (i, id) in Self.knownFeatures.enumerated() {
+            resolve(id) { [weak self] _ in
+                guard let self, i == Self.knownFeatures.count - 1 else { return }
+                self.featuresKnown = true
+                self.owner.linkChanged()
+            }
+        }
     }
 
-    @discardableResult
-    private func send(_ feature: UInt8, _ function: UInt8, _ params: [UInt8]) -> UInt8? {
-        // A long HID++ report: report ID, device index (0xFF addresses a directly connected device),
-        // feature index, then function and software ID sharing a byte.
+    private func remember(_ feature: UInt16, at index: UInt8) {
+        features[feature] = index
+        if index != 0 { featureByIndex[index] = feature }
+    }
+
+    /// Finds a feature's index, asking the root feature the first time. Nil if the device
+    /// doesn't have it or didn't answer.
+    private func resolve(_ feature: UInt16, completion: @escaping (UInt8?) -> Void) {
+        if let index = features[feature] {
+            completion(index == 0 ? nil : index)
+            return
+        }
+        request(0x00, 0, [UInt8(feature >> 8), UInt8(feature & 0xFF)]) { [weak self] reply in
+            guard let self else { return }
+            // No answer leaves it to be asked again; an answer of 0 means the device lacks it.
+            if let reply { self.remember(feature, at: reply[0]) }
+            completion(reply.flatMap { $0[0] == 0 ? nil : $0[0] })
+        }
+    }
+
+    /// Whether the device has a feature. Nil until it has been looked up.
+    func has(_ feature: UInt16) -> Bool? {
+        features[feature].map { $0 != 0 }
+    }
+
+    /// Sends a HID++ request to a feature, by its ID, and passes its reply's parameter bytes to
+    /// `completion` on the main thread: nil if the device doesn't have the feature, refused the
+    /// request, or didn't answer.
+    func call(_ feature: UInt16, _ function: UInt8, _ params: [UInt8] = [], completion: @escaping ([UInt8]?) -> Void) {
+        resolve(feature) { [weak self] index in
+            guard let self, let index else {
+                completion(nil)
+                return
+            }
+            self.request(index, function, params, completion: completion)
+        }
+    }
+
+    /// Sends a HID++ request in its turn without waiting for a reply, which may never come.
+    func post(_ feature: UInt16, _ function: UInt8, _ params: [UInt8]) {
+        resolve(feature) { [weak self] index in
+            guard let self, let index else { return }
+            self.enqueue(Request(feature: index, function: function, params: params, awaitsReply: false) { _ in })
+        }
+    }
+
+    /// Whether a request is waiting for a reply or for its turn.
+    var isBusy: Bool { pending != nil || posting || !queued.isEmpty }
+
+    /// A long HID++ report: report ID, device index (0xFF addresses a directly connected device),
+    /// feature index, then function and software ID sharing a byte, then 16 parameter bytes.
+    static func frame(feature: UInt8, function: UInt8, params: [UInt8]) -> [UInt8] {
         var out = [UInt8](repeating: 0, count: 20)
         out[0] = 0x11
         out[1] = 0xFF
         out[2] = feature
-        out[3] = (function << 4) | Self.softwareID
+        out[3] = (function << 4) | softwareID
         for (i, byte) in params.prefix(16).enumerated() { out[4 + i] = byte }
-        let result = IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, 0x11, out, out.count)
+        return out
+    }
+
+
+    /// Undoes what this app turned on. 0x02 is a setting's valid bit with the setting off.
+    /// Requests still waiting are dropped first, so none of them lands after it. It runs even
+    /// before the divert has been answered, since the divert may already be on its way.
+    func restore() {
+        queued.removeAll()
+        stopped = true
+        guard let before = flagsBefore else { return }
+        let undivert = before & 0x01 == 0
+        // Analytics may have been turned on by a divert still on its way.
+        let unanalytics = flags2Before & 0x01 == 0
+        guard undivert || unanalytics else { return }
+        if send(controlsIndex, 3, controlBytes + [undivert ? 0x02 : 0, 0, 0, unanalytics ? 0x02 : 0]) != nil {
+            UserDefaults.standard.removeObject(forKey: "ReportingBefore." + name)
+        }
+    }
+
+    /// Set once the button has been handed back. Replies arriving after that change nothing.
+    private var stopped = false
+
+    /// Sends a request and waits until it has gone, for quitting. It goes through the same queue
+    /// as every other report, so it can't overtake one sent before it.
+    @discardableResult
+    private func send(_ feature: UInt8, _ function: UInt8, _ params: [UInt8]) -> UInt8? {
+        let out = Self.frame(feature: feature, function: function, params: params)
+        let device = device
+        let result = Self.sender.sync { IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, 0x11, out, out.count) }
         return result == kIOReturnSuccess ? out[3] : nil
     }
 
+    /// Where reports are sent from. Sending blocks until the mouse acknowledges the report, 20 to
+    /// 30 ms over Bluetooth, which on the main thread would hold up the wheel's animation on every
+    /// request. (IOHIDDeviceSetReportWithCallback doesn't block, but once a process has used it
+    /// the device's input reports stopped reaching it.)
+    private static let sender = DispatchQueue(label: "LogiLink.sender", qos: .userInteractive)
+
+    /// Sends a report from `sender` and calls `sent` on the main thread with whether it went.
+    private func transmit(_ report: [UInt8], sent: @escaping (Bool) -> Void) {
+        let device = device
+        Self.sender.async {
+            let result = IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, CFIndex(report[0]), report, report.count)
+            DispatchQueue.main.async { sent(result == kIOReturnSuccess) }
+        }
+    }
+
     private func request(_ feature: UInt8, _ function: UInt8, _ params: [UInt8], completion: @escaping ([UInt8]?) -> Void) {
-        guard pending == nil else {
-            queued.append((feature, function, params, completion))
+        enqueue(Request(feature: feature, function: function, params: params, awaitsReply: true, completion: completion))
+    }
+
+    /// Set while a request that gets no reply is on its way, so the next one waits for it.
+    private var posting = false
+
+    private func enqueue(_ next: Request) {
+        guard !stopped else { return }
+        guard pending == nil, !posting else {
+            queued.append(next)
             return
         }
-        guard let address = send(feature, function, params) else {
-            completion(nil)
-            sendNext()
+        let out = Self.frame(feature: next.feature, function: next.function, params: next.params)
+        guard next.awaitsReply else {
+            posting = true
+            transmit(out) { [weak self] sent in
+                self?.posting = false
+                next.completion(sent ? [] : nil)
+                self?.sendNext()
+            }
             return
         }
         token += 1
         let mine = token
-        pending = (feature, address, mine, completion)
+        pending = (next.feature, out[3], mine, next.completion)
+        transmit(out) { [weak self] sent in
+            guard !sent, let self, let waiting = self.pending, waiting.token == mine else { return }
+            self.finish(nil)
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
             guard let self, let waiting = self.pending, waiting.token == mine else { return }
             TriggerDebug.log(String(format: "request to feature %02x function %02x timed out", waiting.feature, waiting.address >> 4))
@@ -303,9 +476,8 @@ private final class Link {
     }
 
     private func sendNext() {
-        guard pending == nil, !queued.isEmpty else { return }
-        let next = queued.removeFirst()
-        request(next.feature, next.function, next.params, completion: next.completion)
+        guard pending == nil, !posting, !queued.isEmpty else { return }
+        enqueue(queued.removeFirst())
     }
 
     /// Feature IDs by index, for the diagnostic's log.
@@ -365,6 +537,9 @@ private final class Link {
                 finish(nil)
                 return
             }
+        }
+        if report[3] & 0x0F == 0, let feature = featureByIndex[report[2]], feature != Self.controlsFeature {
+            owner.notified(self, feature, report[3] >> 4, Array(report[4...]))
         }
         guard ready, report[2] == controlsIndex else { return }
         TriggerDebug.log("\(channel) " + report[3..<min(report.count, 19)].map { String(format: "%02x", $0) }.joined(separator: " "))

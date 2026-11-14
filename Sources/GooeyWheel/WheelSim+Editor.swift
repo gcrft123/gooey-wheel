@@ -108,6 +108,7 @@ extension WheelSim {
         let itemID: UUID
         switch level.kind {
         case .edit(let id): itemID = id
+        case .picker, .control: return
         case .ring:
             guard let item = b.entry.item else { return }
             itemID = item.id
