@@ -1,259 +1,36 @@
 import Foundation
 import simd
 
-/// What the parent ring does while one of its folders is open.
-enum ParentStyle: String {
-    /// It shrinks and dims in place, and hovering it goes back.
-    case shrink
-    /// It disappears.
-    case hide
-}
-
-struct Tuning {
-    var ringRadius = 108.0
-    var bubbleRadius = 30.0
-    var hoverRadius = 35.5
-    var hubRadius = 26.0
-    var pillHalfHeight = 16.0
-    var pillPadding = 14.0
-    /// The cursor has to leave this radius to start hovering, and come back inside the smaller one to stop.
-    var deadZoneEnter = 25.0
-    var deadZoneExit = 19.0
-    /// Pointing back at the parent ring only counts this far from a folder's hub. A folder opens
-    /// with the cursor already on its inner side, and that shouldn't read as heading back.
-    var backZoneEnter = 44.0
-    var backZoneExit = 38.0
-    /// Past this distance a sticky wheel treats the cursor as outside.
-    var outerLimit = 235.0
-    /// A press shorter than this pins the wheel open. A longer one closes it on release.
-    var pinTapDuration = 0.4
-    var dropRadius = 11.0
-    var stagger = 0.016
-    var hintOffset = 190.0
-    var hintHalfHeight = 14.0
-
-    // Folders
-    /// Size and opacity of a parent ring while its folder is open.
-    var parentScale = 0.38
-    var parentAlpha = 0.55
-    /// Bubbles in a shrunken ring shrink further than the ring does, so they stay separate dots
-    /// instead of merging into one shape.
-    var parentDotScale = 0.58
-    /// A folder's ring spans this arc, facing away from its parent. The rest is the way back.
-    var childArc = 244.0 * .pi / 180
-    /// Seconds the cursor rests on a folder before it opens, and on the parent ring before it returns.
-    var folderDwell = 0.12
-    var backDwell = 0.12
-
-    // Springs. Stiffness and damping at mass 1, the same units as Gooey's presets.
-    var enterPos = SpringConfig(k: 340, c: 22)
-    var retractPos = SpringConfig(k: 700, c: 50)
-    var radiusRest = SpringConfig(k: 300, c: 25)
-    var radiusHover = SpringConfig(k: 520, c: 25)
-    var radiusLeave = SpringConfig.critical(k: 900)
-    var tint = SpringConfig.critical(k: 700)
-    var push = SpringConfig(k: 300, c: 26)
-    var hubPos = SpringConfig(k: 300, c: 24)
-    var hubSize = SpringConfig(k: 520, c: 30)
-    var hubMorph = SpringConfig(k: 400, c: 26)
-    /// How loosely each bubble's tail follows it. The lag is what draws a bubble out into a teardrop.
-    var tailPos = SpringConfig(k: 1500, c: 42)
-    var hubClose = SpringConfig.critical(k: 520)
-    var levelScale = SpringConfig.critical(k: 300)
-    /// Bubbles of a shrunken ring follow its size closely and without bounce. Any overshoot
-    /// makes the small dots merge and separate, which reads as a flash.
-    var ghostTrack = SpringConfig.critical(k: 1600)
-    var levelAlpha = SpringConfig.critical(k: 400)
-    var dropPos = SpringConfig(k: 1300, c: 50)
-    var dropSize = SpringConfig(k: 400, c: 26)
-    var fade = SpringConfig.critical(k: 900)
-
-    /// Critically damped everywhere and no stagger, for the Reduce Motion setting.
-    static var reducedMotion: Tuning {
-        var t = Tuning()
-        t.stagger = 0
-        t.enterPos = .critical(k: 600)
-        t.radiusRest = .critical(k: 600)
-        t.radiusHover = .critical(k: 600)
-        t.push = .critical(k: 600)
-        t.hubPos = .critical(k: 600)
-        t.hubSize = .critical(k: 600)
-        t.hubMorph = .critical(k: 600)
-        t.tailPos = .critical(k: 900)
-        t.levelScale = .critical(k: 600)
-        t.dropPos = .critical(k: 1300)
-        t.dropSize = .critical(k: 600)
-        return t
-    }
-}
-
-/// One rounded box in the goo field. A circle is a box whose corner radius equals its half size.
-struct Blob {
-    var center: V2
-    var half: V2
-    var corner: Double
-    /// 0 is the neutral fill, 1 is the accent color.
-    var tint: Double
-    var alpha: Double = 1
-}
-
-/// One ring of the wheel with its hub. The root is a level, and so is every open folder.
-final class Level {
-    enum Role {
-        /// The ring the cursor is choosing from.
-        case active
-        /// The parent of the active ring, shown small behind it.
-        case ghost
-        /// An ancestor further up. It has no bubbles until it becomes the ghost again.
-        case buried
-        /// Left behind by going back or by reopening. It drains and is removed.
-        case dying
-    }
-
-    enum Pick: Equatable {
-        case slot(Int)
-        case back
-    }
-
-    let id: Int
-    let items: [WheelAction]
-    /// The folder's symbol, shown in the hub. Nil at the root.
-    let symbol: String?
-    var center: V2
-    /// Direction this ring faces, away from its parent. Nil for a full ring.
-    var arcMid: Double?
-    var arcSpan = 0.0
-    /// Rings that open to the left run counterclockwise so their first item is still on top.
-    var reversed = false
-    var role = Role.active
-    /// The slot of the folder that is open from this ring.
-    var openSlot: Int?
-
-    var hubPos: Spring2
-    var hubHalfW: Spring
-    var hubHalfH: Spring
-    var hubTint: Spring
-    var scale: Spring
-    var alpha: Spring
-    var retreating = false
-    var hubCloseAt = 0.0
-    var hubClosing = false
-
-    init(id: Int, items: [WheelAction], symbol: String?, center: V2, tuning t: Tuning) {
-        self.id = id
-        self.items = items
-        self.symbol = symbol
-        self.center = center
-        hubPos = Spring2(center, t.hubPos)
-        hubHalfW = Spring(0, t.hubSize)
-        hubHalfH = Spring(0, t.hubSize)
-        hubTint = Spring(0, t.tint)
-        scale = Spring(1, t.levelScale)
-        alpha = Spring(1, t.levelAlpha)
-    }
-
-    var hubGone: Bool { hubHalfW.value < 0.5 || hubHalfH.value < 0.5 }
-
-    /// Scale for this ring's bubbles: equal to `scale` at full size, smaller once shrunk.
-    func bubbleScale(_ t: Tuning) -> Double {
-        let s = scale.value
-        let full = smooth01((s - t.parentScale) / (1 - t.parentScale))
-        return s * (t.parentDotScale + (1 - t.parentDotScale) * full)
-    }
-
-    private var arcStep: Double { items.count > 1 ? arcSpan / Double(items.count - 1) : 0 }
-
-    func angle(_ slot: Int) -> Double {
-        let n = items.count
-        guard let mid = arcMid, n > 1 else {
-            return -Double.pi / 2 + Double(slot) * 2 * .pi / Double(max(n, 1))
-        }
-        let index = reversed ? n - 1 - slot : slot
-        return mid - arcSpan / 2 + Double(index) * arcStep
-    }
-
-    /// The slot the cursor's direction points at, or `.back` when it points at the parent.
-    func pick(angle a: Double, current: Int?, currentBack: Bool) -> Pick {
-        let n = items.count
-        let slice = arcMid == nil ? 2 * Double.pi / Double(n) : arcStep
-        // Stay on the current choice until the cursor is clearly past its edge.
-        if let h = current, h < n, abs(wrapAngle(a - angle(h))) < slice / 2 + 0.07 {
-            return .slot(h)
-        }
-        guard let mid = arcMid, n > 1 else {
-            let raw = Int((wrapAngle(a + .pi / 2) / slice).rounded())
-            return .slot(((raw % n) + n) % n)
-        }
-        let rel = wrapAngle(a - mid)
-        let edge = arcSpan / 2 + slice / 2
-        if abs(rel) > edge - (currentBack ? 0.07 : 0) { return .back }
-        let index = min(max(Int(((rel + arcSpan / 2) / slice).rounded()), 0), n - 1)
-        return .slot(reversed ? n - 1 - index : index)
-    }
-}
-
-final class Bubble {
-    let id: Int
-    let action: WheelAction
-    let slot: Int
-    let count: Int
-    unowned let level: Level
-    var pos: Spring2
-    var tail: Spring2
-    var radius: Spring
-    var tint: Spring
-    /// Angular displacement away from the hovered neighbor, in radians.
-    var push: Spring
-    var activateAt: Double
-    var active = false
-    var leaving = false
-    var leaveAt = 0.0
-    var selected = false
-
-    init(id: Int, action: WheelAction, slot: Int, level: Level, at p: V2, activateAt: Double, tuning t: Tuning) {
-        self.id = id
-        self.action = action
-        self.slot = slot
-        self.count = level.items.count
-        self.level = level
-        self.activateAt = activateAt
-        pos = Spring2(p, t.enterPos)
-        tail = Spring2(p, t.tailPos)
-        radius = Spring(0, t.radiusRest)
-        tint = Spring(0, t.tint)
-        push = Spring(0, t.push)
-    }
-}
-
 final class WheelSim {
     enum Phase { case closed, open, closing }
     enum Mode { case held, sticky }
 
     var tuning = Tuning()
     var parentStyle = ParentStyle.shrink
+    var store = WheelStore.temporary()
     private(set) var phase = Phase.closed
-    private(set) var mode = Mode.sticky
+    var mode = Mode.sticky
     private(set) var time = 0.0
     var cursor = V2(0, 0)
 
     /// The open rings, root first. The last one is active.
     private(set) var levels: [Level] = []
     private(set) var dying: [Level] = []
-    private(set) var bubbles: [Bubble] = []
-    private(set) var hovered: Int?
+    var bubbles: [Bubble] = []
+    var hovered: Int?
     /// The cursor points back at the parent ring.
-    private(set) var hoverBack = false
+    var hoverBack = false
     private var nextID = 0
     private var openedAt = 0.0
     private var lastCenter = V2(0, 0)
 
     // Opening and leaving folders by resting the cursor
-    private var dwell = 0.0
+    var dwell = 0.0
     /// The folder just returned from. It can't reopen until the cursor has left it.
-    private var reopenBlock: Int?
+    private var reopenBlock: BubbleKey?
     /// A ring that opened under the cursor ignores it until it moves.
-    private var armed = true
-    private var armOrigin = V2(0, 0)
+    var armed = true
+    var armOrigin = V2(0, 0)
 
     /// 0 shows the hub's glyph, 1 shows the hovered action's name.
     private(set) var labelMix = Spring(0, Tuning().fade)
@@ -266,20 +43,37 @@ final class WheelSim {
     private(set) var dropPos = Spring2(V2(0, 0), Tuning().dropPos)
     private(set) var dropRadius = Spring(0, Tuning().dropSize)
     private(set) var dropTint = Spring(0, Tuning().tint)
+    /// The hovered item's color, kept while the droplet drains.
+    private(set) var dropColor: SIMD3<Float>?
 
     // First-launch hint
-    private var showHint = false
+    var showHint = false
     private(set) var hintPresence = Spring(0, SpringConfig(k: 300, c: 26))
     var hintHalfWidth = 80.0
+
+    /// Everything that exists only while the wheel is being rearranged.
+    var config = ConfigState()
 
     var labelWidth: (String) -> Double = { _ in 60 }
     var clampCenter: (V2) -> V2 = { $0 }
     var onHover: (() -> Void)?
-    var onSelect: ((WheelAction) -> Void)?
+    var onSelect: ((WheelItem) -> Void)?
+    /// The wheel's contents changed, or a change was refused.
+    var onEdit: ((EditFeedback) -> Void)?
+    /// A panel started to open, its save button was pressed, and it started to close.
+    var onEditorOpen: ((EditorRequest) -> Void)?
+    var onEditorSave: (() -> Void)?
+    var onEditorClose: (() -> Void)?
+    /// Looks up a named place inside the open panel, for the demo's cursor.
+    var panelPoint: ((String) -> V2?)?
+    /// Keeps a panel of the given half size on screen.
+    var clampPanel: (V2, V2) -> V2 = { center, _ in center }
 
     var activeLevel: Level? { levels.last }
     var allLevels: [Level] { dying + levels }
     var center: V2 { levels.last?.center ?? lastCenter }
+    /// What the goo's view is centered on: the wheel, or the panel that is open over it.
+    var viewCenter: V2 { config.editor?.center ?? center }
     var hubPosition: V2 { levels.last?.hubPos.value ?? lastCenter }
 
     /// 1 while a bubble is in place, falling to 0 over the first moments of its retreat.
@@ -308,9 +102,7 @@ final class WheelSim {
             hintPresence.snap(0)
         }
         levels.removeAll()
-        labelMix.snap(0)
-        labelFades[0].snap(0)
-        labelFades[1].snap(0)
+        resetLabel()
 
         mode = m
         cursor = cur
@@ -325,9 +117,10 @@ final class WheelSim {
         armed = true
         dropPos.config = t.dropPos
         dropRadius.config = t.dropSize
+        config = ConfigState()
 
         nextID += 1
-        let root = Level(id: nextID, items: WheelContent.root, symbol: nil, center: c, tuning: t)
+        let root = Level(id: nextID, kind: .ring(.root), entries: entries(for: .ring(.root)), symbol: nil, color: nil, center: c, tuning: t)
         levels.append(root)
         lastCenter = c
         spawn(root, delay: 0.02)
@@ -335,6 +128,7 @@ final class WheelSim {
 
     func dismiss() {
         guard phase == .open else { return }
+        endConfiguration()
         phase = .closing
         hovered = nil
         hoverBack = false
@@ -342,16 +136,22 @@ final class WheelSim {
     }
 
     /// The summon key came up. Releasing over an item picks it, a quick tap leaves the wheel open.
-    func triggerReleased() {
+    /// `missed` is a release the mouse never reported, recovered later, so when the button came
+    /// up isn't known. It's taken as a tap.
+    func triggerReleased(missed: Bool = false) {
         guard phase == .open, mode == .held else { return }
+        if missed {
+            mode = .sticky
+            return
+        }
         refreshHover()
         if hoverBack {
             mode = .sticky
             back()
         } else if let b = hoveredBubble {
-            if b.action.isFolder {
+            if b.entry.isFolder {
                 mode = .sticky
-                enterFolder(b)
+                enter(b)
             } else {
                 select(b)
             }
@@ -368,7 +168,7 @@ final class WheelSim {
         if hoverBack {
             back()
         } else if let b = hoveredBubble {
-            if b.action.isFolder { enterFolder(b) } else { select(b) }
+            if b.entry.isFolder { enter(b) } else { select(b) }
         } else if simd_distance(cursor, level.center) < tuning.deadZoneEnter + 8, levels.count > 1 {
             back()
         } else {
@@ -378,23 +178,35 @@ final class WheelSim {
 
     func escape() {
         guard phase == .open else { return }
-        if levels.count > 1 { back() } else { dismiss() }
+        if config.active {
+            escapeConfiguration()
+        } else if levels.count > 1 {
+            back()
+        } else {
+            dismiss()
+        }
     }
 
     // MARK: Navigation
 
-    private var hoveredBubble: Bubble? {
+    var hoveredBubble: Bubble? {
         guard phase == .open, let h = hovered else { return nil }
         return currentBubble(h)
     }
 
-    private func currentBubble(_ slot: Int) -> Bubble? {
+    func currentBubble(_ slot: Int) -> Bubble? {
         guard let level = levels.last else { return nil }
         return bubbles.first { $0.level === level && $0.slot == slot && !$0.leaving }
     }
 
+    func currentBubble(_ key: BubbleKey) -> Bubble? {
+        guard let level = levels.last else { return nil }
+        return bubbles.first { $0.level === level && $0.key == key && !$0.leaving }
+    }
+
     private func select(_ b: Bubble) {
-        onSelect?(b.action)
+        guard let item = b.entry.item else { return }
+        onSelect?(item)
         b.radius.velocity += 240
         phase = .closing
         labelHeld = true
@@ -409,10 +221,11 @@ final class WheelSim {
         }
     }
 
-    /// Opens a folder as a new ring centered on the folder's bubble. The bubble becomes the new
-    /// hub where it stands, and the ring it came from shrinks behind it.
-    private func enterFolder(_ b: Bubble) {
-        guard let parent = levels.last else { return }
+    /// Opens a new ring centered on a bubble: a folder's items, or the edit options for the
+    /// bubble's item. The bubble becomes the new hub where it stands, and the ring it came from
+    /// shrinks behind it.
+    func enter(_ b: Bubble, editing: Bool = false) {
+        guard let parent = levels.last, let item = b.entry.item, editing || item.isFolder else { return }
         let t = tuning
         let phi = parent.angle(b.slot)
         var home = parent.center + t.ringRadius * V2(cos(phi), sin(phi))
@@ -426,24 +239,26 @@ final class WheelSim {
 
         if levels.count >= 2 { bury(levels[levels.count - 2]) }
         parent.role = .ghost
-        parent.openSlot = b.slot
+        parent.openKey = b.key
         parent.hubHalfW.config = t.hubClose
         parent.hubHalfH.config = t.hubClose
 
         nextID += 1
-        let child = Level(id: nextID, items: b.action.children, symbol: b.action.symbol, center: home, tuning: t)
+        let kind: Level.Kind = editing ? .edit(item.id) : .ring(.folder(item.id))
+        let child = Level(id: nextID, kind: kind, entries: entries(for: kind), symbol: item.symbol, color: item.color, center: home, tuning: t)
         if parentStyle == .shrink {
             child.arcMid = phi
-            child.arcSpan = t.childArc
+            child.arcLimit = t.childArc
             child.reversed = cos(phi) < -0.01
         }
-        // The hub starts inside the folder's bubble, small enough not to swell it, and takes over
+        // The hub starts inside the bubble, small enough not to swell it, and takes over
         // while the bubble itself retreats to its place in the shrunken ring.
         child.hubPos.snap(b.pos.value)
         child.hubPos.velocity = b.pos.velocity
-        child.hubHalfW.snap(16)
-        child.hubHalfH.snap(16)
-        child.hubTint.snap(1)
+        child.hubHalfW.snap(editing ? 20 : 16)
+        child.hubHalfH.snap(editing ? 20 : 16)
+        // In normal use the bubble is already filled when it opens. While configuring it may not be.
+        child.hubTint.snap(config.active ? clamp01(b.tint.value) : 1)
         levels.append(child)
         lastCenter = home
 
@@ -453,13 +268,12 @@ final class WheelSim {
         reopenBlock = nil
         armed = false
         armOrigin = cursor
-        labelMix.snap(0)
-        labelFades[0].snap(0)
-        labelFades[1].snap(0)
+        resetLabel()
+        adoptDragged(into: child)
         spawn(child, delay: 0.05)
     }
 
-    private func back() {
+    func back() {
         guard levels.count >= 2 else { return }
         let t = tuning
         let child = levels.removeLast()
@@ -469,8 +283,8 @@ final class WheelSim {
 
         let parent = levels[levels.count - 1]
         parent.role = .active
-        reopenBlock = parent.openSlot
-        parent.openSlot = nil
+        reopenBlock = parent.openKey
+        parent.openKey = nil
         parent.hubHalfW.config = t.hubSize
         parent.hubHalfH.config = t.hubSize
         lastCenter = parent.center
@@ -480,17 +294,15 @@ final class WheelSim {
         hoverBack = false
         dwell = 0
         armed = true
-        labelMix.snap(0)
-        labelFades[0].snap(0)
-        labelFades[1].snap(0)
+        resetLabel()
     }
 
-    private func bury(_ level: Level) {
+    func bury(_ level: Level) {
         level.role = .buried
         retreat(level)
     }
 
-    private func resurrect(_ level: Level) {
+    func resurrect(_ level: Level) {
         let t = tuning
         level.role = .ghost
         level.retreating = false
@@ -504,18 +316,22 @@ final class WheelSim {
         spawn(level, delay: 0)
     }
 
-    private func spawn(_ level: Level, delay: Double) {
-        for (i, action) in level.items.enumerated() {
-            nextID += 1
-            bubbles.append(Bubble(
-                id: nextID, action: action, slot: i, level: level,
-                at: level.hubPos.value, activateAt: time + delay + Double(i) * tuning.stagger, tuning: tuning
-            ))
+    func spawn(_ level: Level, delay: Double) {
+        for (i, entry) in level.entries.enumerated() where !isDragged(entry.key) && !isEditorAnchor(entry.key, in: level) {
+            addBubble(entry, slot: i, level: level, at: time + delay + Double(i) * tuning.stagger)
         }
     }
 
+    @discardableResult
+    func addBubble(_ entry: Entry, slot: Int, level: Level, at activateAt: Double) -> Bubble {
+        nextID += 1
+        let b = Bubble(id: nextID, entry: entry, slot: slot, level: level, at: level.hubPos.value, activateAt: activateAt, tuning: tuning)
+        bubbles.append(b)
+        return b
+    }
+
     /// Sends a level's bubbles back into its hub, which then closes.
-    private func retreat(_ level: Level, selected: Bubble? = nil, hold: Double = 0, hubDelay: Double = 0.03) {
+    func retreat(_ level: Level, selected: Bubble? = nil, hold: Double = 0, hubDelay: Double = 0.03) {
         level.retreating = true
         level.hubCloseAt = time + hubDelay
         bubbles.removeAll { $0.level === level && !$0.leaving && !$0.active }
@@ -532,7 +348,8 @@ final class WheelSim {
     }
 
     /// Signed number of slots from `from` to `slot` going the short way around.
-    private func ringDelta(_ slot: Int, _ from: Int, _ count: Int) -> Int {
+    func ringDelta(_ slot: Int, _ from: Int, _ count: Int) -> Int {
+        guard count > 0 else { return 0 }
         var d = (slot - from) % count
         if d > count / 2 { d -= count }
         if d < -(count / 2) { d += count }
@@ -540,13 +357,106 @@ final class WheelSim {
         return d
     }
 
+    // MARK: Contents
+
+    private func entries(for kind: Level.Kind) -> [Entry] {
+        switch kind {
+        case .ring(let container):
+            return displayItems(in: container).map(Entry.item)
+        case .edit(let id):
+            return store.item(id).map { EditOption.options(for: $0).map(Entry.option) } ?? []
+        }
+    }
+
+    /// Whether the folder or item a level was opened from is still where it was.
+    private func exists(_ level: Level, under parent: Level?) -> Bool {
+        switch level.kind {
+        case .ring(.root):
+            return true
+        case .ring(.folder(let id)):
+            return store.item(id)?.isFolder == true
+        case .edit(let id):
+            return store.location(of: id)?.container == parent?.container
+        }
+    }
+
+    /// Brings every ring in line with the store after a change. Rings whose folder or item
+    /// is gone close, new items drip out of the hub, removed ones drain into it, and the rest
+    /// slide to their new places.
+    func syncLevels() {
+        while levels.count > 1, !exists(levels[levels.count - 1], under: levels[levels.count - 2]) {
+            back()
+        }
+        for level in levels {
+            level.entries = entries(for: level.kind)
+            switch level.kind {
+            case .ring(.folder(let id)), .edit(let id):
+                level.symbol = store.item(id)?.symbol
+                level.color = store.item(id)?.color
+            case .ring(.root):
+                break
+            }
+            reconcile(level)
+        }
+        hovered = nil
+        hoverBack = false
+        reopenBlock = nil
+    }
+
+    private func reconcile(_ level: Level) {
+        var present = Set<BubbleKey>()
+        for b in bubbles where b.level === level && !b.leaving {
+            if let slot = level.slot(of: b.key) {
+                b.slot = slot
+                b.entry = level.entries[slot]
+                present.insert(b.key)
+            } else if b.active {
+                b.leaving = true
+                b.leaveAt = time
+                // A dot in a shrunken ring drains at the size it has, even as its ring grows back.
+                b.leaveRadius = b.radius.value
+            }
+        }
+        bubbles.removeAll { $0.level === level && !$0.leaving && !$0.active && level.slot(of: $0.key) == nil }
+        // A ring that has stepped aside for an editing panel comes back as a whole later.
+        guard level.role == .active || level.role == .ghost, !level.retreating else { return }
+        for (slot, entry) in level.entries.enumerated() where !present.contains(entry.key) {
+            let between = angleBetweenNeighbors(of: slot, in: level)
+            // Its neighbors get a head start, so it comes out into a gap that is already opening.
+            let b = addBubble(entry, slot: slot, level: level, at: time + (between == nil || tuning.stagger == 0 ? 0 : 0.07))
+            if let between { b.angle.snap(between) }
+        }
+    }
+
+    /// Where a bubble joining a ring should come out: halfway between the bubbles that will
+    /// be its neighbors, which then part to make room. Nil when it has no neighbor on one side.
+    private func angleBetweenNeighbors(of slot: Int, in level: Level) -> Double? {
+        let n = level.count
+        guard n > 2 else { return nil }
+        func settled(_ index: Int) -> Bubble? {
+            let wrapped = level.arcMid == nil ? (index + n) % n : index
+            return bubbles.first { $0.level === level && $0.slot == wrapped && $0.active && !$0.leaving }
+        }
+        guard let before = settled(slot - 1), let after = settled(slot + 1) else { return nil }
+        var gap = after.angle.value - before.angle.value
+        if level.arcMid == nil {
+            gap = gap.truncatingRemainder(dividingBy: 2 * .pi)
+            if gap <= 0 { gap += 2 * .pi }
+        }
+        return before.angle.value + gap / 2
+    }
+
     // MARK: Hover
 
     func refreshHover() {
+        if config.active {
+            refreshConfigurationHover()
+            return
+        }
         let t = tuning
         var next: Int?
         var nextBack = false
-        if phase == .open, let level = levels.last, !level.items.isEmpty {
+        if phase == .open, let level = levels.last, level.count > 0 {
             let v = cursor - level.center
             let dist = simd_length(v)
             if !armed, dist < t.deadZoneExit || simd_distance(cursor, armOrigin) > 12 {
@@ -560,6 +470,10 @@ final class WheelSim {
                 }
             }
         }
+        setHover(next, back: nextBack)
+    }
+
+    func setHover(_ next: Int?, back nextBack: Bool) {
         guard next != hovered || nextBack != hoverBack else { return }
         hovered = next
         hoverBack = nextBack
@@ -568,9 +482,16 @@ final class WheelSim {
             setLabel("Back")
             onHover?()
         } else if let h = next, let b = currentBubble(h) {
-            setLabel(b.action.title)
+            setLabel(b.entry.title)
+            dropColor = bubbleColor(b)
             onHover?()
         }
+    }
+
+    private func resetLabel() {
+        labelMix.snap(0)
+        labelFades[0].snap(0)
+        labelFades[1].snap(0)
     }
 
     private func setLabel(_ title: String) {
@@ -588,30 +509,34 @@ final class WheelSim {
     }
 
     /// 0 to 1 while the cursor rests on the hovered folder, for the bud that swells before it opens.
-    private var folderDwellProgress: Double {
-        guard let b = hoveredBubble, b.action.isFolder else { return 0 }
+    var folderDwellProgress: Double {
+        guard !config.active, let b = hoveredBubble, b.entry.isFolder else { return 0 }
         return clamp01(dwell / tuning.folderDwell)
     }
 
     /// Opens a folder the cursor rests on, and goes back when it rests on the parent ring.
     private func updateDwell(_ dt: Double) {
-        guard phase == .open, let level = levels.last else { return }
+        guard phase == .open, !config.active, let level = levels.last else { return }
         let t = tuning
 
         if let blocked = reopenBlock {
-            let a = level.angle(blocked)
-            let home = level.center + t.ringRadius * V2(cos(a), sin(a))
-            if simd_distance(cursor, home) > t.bubbleRadius + 12 { reopenBlock = nil }
+            if let slot = level.slot(of: blocked) {
+                let a = level.angle(slot)
+                let home = level.center + t.ringRadius * V2(cos(a), sin(a))
+                if simd_distance(cursor, home) > t.bubbleRadius + 12 { reopenBlock = nil }
+            } else {
+                reopenBlock = nil
+            }
         }
 
-        if let b = hoveredBubble, b.action.isFolder, reopenBlock != b.slot {
+        if let b = hoveredBubble, b.entry.isFolder, reopenBlock != b.key {
             // Measured against the bubble's resting place, so a cursor passing along the inside
             // of the ring doesn't open a folder that leaned toward it.
             let a = level.angle(b.slot)
             let home = level.center + t.ringRadius * V2(cos(a), sin(a))
             if simd_distance(cursor, home) < t.bubbleRadius {
                 dwell += dt
-                if dwell >= t.folderDwell { enterFolder(b) }
+                if dwell >= t.folderDwell { enter(b) }
                 return
             }
         } else if hoverBack, levels.count >= 2 {
@@ -633,10 +558,13 @@ final class WheelSim {
         time += dt
         refreshHover()
         updateDwell(dt)
+        stepConfiguration(dt)
+        stepEditor(dt)
         let t = tuning
         let ring = t.ringRadius
         let active = phase == .open ? levels.last : nil
-        let showLabel = (phase == .open && (hovered != nil || hoverBack)) || (phase == .closing && labelHeld)
+        let pointing = hovered != nil || hoverBack
+        let showLabel = (phase == .open && (pointing || config.holdsLabel) && showsHubLabel) || (phase == .closing && labelHeld)
 
         labelMix.target = showLabel ? 1 : 0
         labelMix.step(dt)
@@ -665,7 +593,7 @@ final class WheelSim {
             let hubP = level.hubPos.value
 
             if level.retreating, !level.hubClosing, time >= level.hubCloseAt,
-               bubbles.allSatisfy({ $0.level !== level || simd_distance($0.pos.value, hubP) < 38 }) {
+               bubbles.allSatisfy({ $0.level !== level || $0.sink != nil || simd_distance($0.pos.value, hubP) < 38 }) {
                 level.hubClosing = true
                 level.hubHalfW.config = t.hubClose
                 level.hubHalfH.config = t.hubClose
@@ -683,12 +611,13 @@ final class WheelSim {
                 level.hubHalfW.target = max(t.pillHalfHeight + 6, labelWidth(labelTitles[labelSlot]) / 2 + t.pillPadding)
                 level.hubHalfH.target = t.pillHalfHeight
             } else {
-                level.hubHalfW.target = t.hubRadius
-                level.hubHalfH.target = t.hubRadius
+                let r = level.hubRadius(t) + (level === active ? hubSwell : 0)
+                level.hubHalfW.target = r
+                level.hubHalfH.target = r
             }
             level.hubHalfW.step(dt)
             level.hubHalfH.step(dt)
-            level.hubTint.target = 0
+            level.hubTint.target = level === active ? hubFill : 0
             level.hubTint.step(dt)
         }
 
@@ -705,17 +634,29 @@ final class WheelSim {
             }
             let dist = simd_distance(b.pos.value, hubP)
             if b.leaving, time >= b.leaveAt {
+                // A bubble that was dropped onto another drains into it. The rest go to the hub.
+                let drain = b.sink?.pos.value ?? hubP
+                let left = simd_distance(b.pos.value, drain)
                 b.pos.config = t.retractPos
-                b.pos.target = hubP
+                b.pos.target = drain
                 b.radius.config = t.radiusLeave
-                b.radius.target = dist < 5 ? -3 : t.bubbleRadius * level.bubbleScale(t) * clamp01(dist / (ring * 0.9))
+                let full = t.bubbleRadius * level.bubbleScale(t) * clamp01(left / (ring * 0.9))
+                b.radius.target = left < 5 ? -3 : min(full, b.leaveRadius ?? full)
                 b.tint.target = b.selected ? 1 : 0
+                b.lift.target = 0
                 b.push.target = 0
+            } else if isDragged(b) {
+                stepDragged(b)
             } else {
                 let s = level.scale.value
                 let isHovered = b.leaving ? b.selected : (level === active && hovered == b.slot)
-                let isOpenFolder = level.openSlot == b.slot
-                let angle = level.angle(b.slot) + b.push.value
+                let isOpen = level.openKey == b.key
+                let isTarget = isDropTarget(b)
+                let slotAngle = level.angle(b.slot)
+                // An arc never wraps, so its bubbles don't take a shortcut across the parent ring.
+                b.angle.target = level.arcMid == nil ? b.angle.value + wrapAngle(slotAngle - b.angle.value) : slotAngle
+                b.angle.step(dt)
+                let angle = b.angle.value + b.push.value
                 var home = level.center + ring * s * V2(cos(angle), sin(angle))
                 if isHovered, !b.leaving {
                     home += clampLength((cursor - home) * 0.22, 7)
@@ -725,9 +666,11 @@ final class WheelSim {
                 let emerge = max(0.5, clamp01(dist / (ring * 0.5 * max(s, 0.05))))
                 let front = level.role == .active
                 b.pos.config = front ? t.enterPos : t.ghostTrack
-                b.radius.config = front ? (isHovered ? t.radiusHover : t.radiusRest) : t.ghostTrack
-                b.radius.target = (isHovered ? t.hoverRadius : t.bubbleRadius) * level.bubbleScale(t) * emerge
-                b.tint.target = isHovered || isOpenFolder ? 1 : 0
+                b.radius.config = front ? (isHovered || isTarget ? t.radiusHover : t.radiusRest) : t.ghostTrack
+                let size = isTarget ? dropTargetRadius : (isHovered ? hoverRadius(b) : t.bubbleRadius * pressScale(b))
+                b.radius.target = size * level.bubbleScale(t) * emerge
+                b.tint.target = (isHovered && fillsOnHover(b)) || isOpen || isTarget ? 1 : 0
+                b.lift.target = isHovered && !fillsOnHover(b) ? 1 : 0
                 b.push.target = b.leaving ? 0 : pushAngle(for: b, active: active)
             }
             b.pos.step(dt)
@@ -735,11 +678,13 @@ final class WheelSim {
             b.tail.step(dt)
             b.radius.step(dt)
             b.tint.step(dt)
+            b.lift.step(dt)
             b.push.step(dt)
+            stepBadge(b, dt)
         }
         bubbles.removeAll { b in
             guard b.leaving, b.active, time >= b.leaveAt else { return false }
-            let dist = simd_distance(b.pos.value, b.level.hubPos.value)
+            let dist = simd_distance(b.pos.value, b.sink?.pos.value ?? b.level.hubPos.value)
             return (b.radius.value < 0.6 && dist < 10) || time > b.leaveAt + 0.7
         }
         dying.removeAll { level in
@@ -747,16 +692,26 @@ final class WheelSim {
         }
 
         // Droplet
-        if let level = active {
+        if let level = active, !editorIsOpen {
             let v = cursor - level.center
             let d = simd_length(v)
-            if hovered != nil || hoverBack, d > 0 {
-                dropPos.target = level.center + v / d * min(d, ring)
+            let hubHalf = V2(max(level.hubHalfW.value, 0), max(level.hubHalfH.value, 0))
+            if pointing, showsDroplet, d > 0 {
+                // The droplet goes out as far as the cursor, and never rests against the hub's
+                // label: this near the hub it would sit on the label's edge as a bump.
+                let dir = v / d
+                let edge = min(hubHalf.x / max(abs(dir.x), 1e-6), hubHalf.y / max(abs(dir.y), 1e-6))
+                let clear = min(edge + t.dropRadius + 20, ring)
+                dropPos.target = level.center + dir * max(min(d, ring), clear)
                 dropRadius.target = t.dropRadius
                 dropTint.target = hoverBack ? 0 : 1
             } else {
-                dropPos.target = level.center + clampLength(v, max(t.hubRadius - 11, 0))
-                dropRadius.target = 5
+                // At rest it stays inside the hub, whatever shape the hub has taken.
+                let room = simd_max(hubHalf - V2(8, 8), V2(0, 0))
+                dropPos.target = level.center + simd_clamp(clampLength(v, max(t.hubRadius - 11, 0)), -room, room)
+                // Under a label there is no room for it: even inside, it would raise a bump
+                // in the label's edge.
+                dropRadius.target = showLabel ? -3 : 5
                 dropTint.target = 0
             }
         } else {
@@ -771,7 +726,7 @@ final class WheelSim {
         hintPresence.target = (showHint && phase == .open && levels.count == 1 && time - openedAt > 0.4) ? 1 : 0
         hintPresence.step(dt)
 
-        if phase == .closing, dying.isEmpty, bubbles.isEmpty,
+        if phase == .closing, dying.isEmpty, bubbles.isEmpty, config.editor == nil,
            levels.allSatisfy({ $0.hubClosing && $0.hubGone }) {
             phase = .closed
             levels.removeAll()
@@ -790,64 +745,5 @@ final class WheelSim {
         }
     }
 
-    // MARK: Output
-
     var hintCenter: V2 { (levels.first?.center ?? lastCenter) + V2(0, tuning.hintOffset) }
-
-    func blobs() -> [Blob] {
-        guard phase != .closed else { return [] }
-        let t = tuning
-        var out: [Blob] = []
-        out.reserveCapacity(48)
-
-        for level in allLevels {
-            let hw = max(level.hubHalfW.value, 0)
-            let hh = max(level.hubHalfH.value, 0)
-            if hw > 0.3, hh > 0.3 {
-                out.append(Blob(
-                    center: level.hubPos.value, half: V2(hw, hh), corner: min(hw, hh),
-                    tint: clamp01(level.hubTint.value), alpha: clamp01(level.alpha.value)
-                ))
-            }
-        }
-        let budGrowth = folderDwellProgress
-        for b in bubbles where b.active {
-            let r = b.radius.value
-            guard r > 0.3 else { continue }
-            let level = b.level
-            let tint = clamp01(b.tint.value)
-            // The open folder's dot stays bright in the shrunken ring to mark the path taken.
-            let marksPath = level.openSlot == b.slot && parentStyle == .shrink
-            let alpha = marksPath ? max(clamp01(level.alpha.value), 0.95) : clamp01(level.alpha.value)
-            out.append(Blob(center: b.pos.value, half: V2(r, r), corner: r, tint: tint, alpha: alpha))
-            // The tail only has size while it trails, so a bubble at rest is a clean circle.
-            // A shrunken ring has no tails: they would bridge its dots.
-            let trailing = level.role == .active || b.leaving
-            let tr = trailing ? r * 0.72 * clamp01(simd_distance(b.tail.value, b.pos.value) / 9) : 0
-            if tr > 0.5 {
-                out.append(Blob(center: b.tail.value, half: V2(tr, tr), corner: tr, tint: tint, alpha: alpha))
-            }
-            // Folders carry a small bud on their outer edge. It swells just before the folder opens.
-            if b.action.isFolder, !b.leaving, level.role == .active, level.scale.value > 0.85, r > 12 {
-                let outward = b.pos.value - level.hubPos.value
-                let length = simd_length(outward)
-                if length > 20 {
-                    let hoveredFolder = level === levels.last && hovered == b.slot
-                    let br = 4.6 * min(r / t.bubbleRadius, 1.1) * (hoveredFolder ? 1 + 0.9 * budGrowth : 1)
-                    out.append(Blob(center: b.pos.value + outward / length * (r + 1.2), half: V2(br, br), corner: br, tint: tint, alpha: alpha))
-                }
-            }
-        }
-        let dr = dropRadius.value
-        if dr > 0.3 {
-            out.append(Blob(center: dropPos.value, half: V2(dr, dr), corner: dr, tint: clamp01(dropTint.value)))
-        }
-        let hp = hintPresence.value
-        if hp > 0.02 {
-            let s = max(hp, 0)
-            let half = V2(hintHalfWidth * s, t.hintHalfHeight * s)
-            out.append(Blob(center: hintCenter, half: half, corner: min(half.x, half.y), tint: 0))
-        }
-        return out
-    }
 }
