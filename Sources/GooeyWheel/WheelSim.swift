@@ -111,7 +111,9 @@ final class WheelSim {
 
     // MARK: Lifecycle
 
-    func open(center c: V2, cursor cur: V2, mode m: Mode, hint: Bool) {
+    /// `formed` opens with the hub already at its size and place, for a wheel that takes over
+    /// from a hub something else has drawn on the same spot.
+    func open(center c: V2, cursor cur: V2, mode m: Mode, hint: Bool, formed: Bool = false) {
         let t = tuning
         // Reopening next to a wheel that's still closing lets the old one finish draining.
         let continuing = phase == .closing && simd_distance(hubPosition, c) < 150
@@ -150,11 +152,21 @@ final class WheelSim {
 
         nextID += 1
         let root = Level(id: nextID, kind: .ring(.root), entries: entries(for: .ring(.root)), symbol: nil, color: nil, center: c, tuning: t)
+        if formed {
+            root.hubHalfW.snap(t.hubRadius)
+            root.hubHalfH.snap(t.hubRadius)
+            root.hubPos.snap(c + Self.hubLean(cursor: cur, center: c))
+        }
         levels.append(root)
         lastCenter = c
         spawn(root, delay: 0.02)
         refreshLive()
         liveRefreshAt = time + 0.5
+    }
+
+    /// How far a hub leans toward the cursor.
+    static func hubLean(cursor: V2, center: V2) -> V2 {
+        clampLength((cursor - center) * 0.045, 4)
     }
 
     func dismiss() {
@@ -728,7 +740,7 @@ final class WheelSim {
             level.scale.step(dt)
             level.alpha.step(dt)
 
-            let lean = level === active && !level.isControl ? clampLength((cursor - level.center) * 0.045, 4) : V2(0, 0)
+            let lean = level === active && !level.isControl ? Self.hubLean(cursor: cursor, center: level.center) : V2(0, 0)
             level.hubPos.target = level.center + lean
             level.hubPos.step(dt)
             let hubP = level.hubPos.value

@@ -8,6 +8,8 @@ enum DemoScript: String {
     case configure
     /// In-item controls: a slider's level and bar, a picker, and toggles.
     case controls
+    /// A bit of everything, for the welcome panel's video.
+    case tour
 }
 
 /// Where the demo's opaque backdrop goes: the bottom-right corner of the screen, no larger
@@ -19,6 +21,7 @@ enum DemoStage {
     static func size(for script: DemoScript) -> CGSize {
         switch script {
         case .wheel: return CGSize(width: 860, height: 660)
+        case .tour: return CGSize(width: 760, height: 640)
         // The editing panels are wider than the wheel.
         case .configure, .controls: return CGSize(width: 1100, height: 840)
         }
@@ -34,7 +37,7 @@ enum DemoStage {
     /// The wheel opens at the stage's center. The small stage puts it a little left of
     /// center, which leaves room for a folder opening to the right.
     static func wheelCenter(in frame: CGRect, script: DemoScript) -> CGPoint {
-        CGPoint(x: frame.midX - (script == .wheel ? 50 : 0), y: frame.midY)
+        CGPoint(x: frame.midX - (script == .wheel || script == .tour ? 50 : 0), y: frame.midY)
     }
 
     /// The part of the stage inside its rounded corners, as `x,y,width,height` measured from
@@ -100,6 +103,7 @@ final class DemoDriver {
         case .wheel: self.script = Self.wheelScript()
         case .configure: self.script = Self.configureScript()
         case .controls: self.script = Self.controlsScript()
+        case .tour: self.script = Self.tourScript()
         }
         resolved = Array(repeating: nil, count: self.script.path.count)
     }
@@ -283,8 +287,9 @@ final class DemoControls: ControlSource {
 
     private func id(_ item: WheelItem) -> String { item.actionID ?? "" }
 
-    /// One item the demo pretends this Mac can't run, to show a refusal.
-    func isAvailable(_ item: WheelItem) -> Bool { id(item) != "system.emoji" }
+    /// One item the demo pretends this Mac can't run, to show a refusal. The tour shows none.
+    var refuses = true
+    func isAvailable(_ item: WheelItem) -> Bool { !refuses || id(item) != "system.emoji" }
     func isOn(_ item: WheelItem) -> Bool? { toggles[id(item)] }
 
     func liveSymbol(_ item: WheelItem) -> String? {
