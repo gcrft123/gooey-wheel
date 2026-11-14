@@ -8,8 +8,8 @@ import IOKit.hid
 /// sends a notification listing which diverted buttons are down. That gives a press and a release,
 /// which a keyboard shortcut assigned in Options+ doesn't.
 ///
-/// Only devices connected by Bluetooth are handled. A mouse behind a Bolt receiver is addressed
-/// differently and isn't supported yet.
+/// A mouse connected by Bluetooth is opened directly. One behind a receiver, such as Bolt, is
+/// reached through the receiver's HID++ interface (see `LogiReceiver`).
 final class LogiButton {
     enum Status: Equatable {
         case searching
@@ -50,6 +50,7 @@ final class LogiButton {
     fileprivate let controlID: UInt16?
     private let manager: IOHIDManager
     private(set) var links: [LogiLink] = []
+    private var receivers: [LogiReceiver] = []
     private let vendor = VendorChannel()
     private var unopened: [IOHIDDevice] = []
     private var retryTimer: Timer?
@@ -62,13 +63,13 @@ final class LogiButton {
     }
 
     func start() {
-        // HID++ over Bluetooth is a vendor-defined collection on the mouse's own HID device.
-        let matching: [String: Any] = [
-            kIOHIDVendorIDKey: 0x046D,
-            kIOHIDDeviceUsagePageKey: 0xFF43,
-            kIOHIDDeviceUsageKey: 0x0202,
+        let matching: [[String: Any]] = [
+            // HID++ over Bluetooth is a vendor-defined collection on the mouse's own HID device.
+            [kIOHIDVendorIDKey: 0x046D, kIOHIDDeviceUsagePageKey: Self.bluetoothPage, kIOHIDDeviceUsageKey: Self.bluetoothUsage],
+            // A receiver has an interface of its own for HID++, whose long reports are this usage.
+            [kIOHIDVendorIDKey: 0x046D, kIOHIDDeviceUsagePageKey: 0xFF00, kIOHIDDeviceUsageKey: 0x0002],
         ]
-        IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
+        IOHIDManagerSetDeviceMatchingMultiple(manager, matching as CFArray)
         let context = Unmanaged.passUnretained(self).toOpaque()
         IOHIDManagerRegisterDeviceMatchingCallback(manager, { context, _, _, device in
             guard let context else { return }
@@ -81,7 +82,7 @@ final class LogiButton {
         IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
         IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         vendor.onMessage = { [weak self] name, report in
-            for link in self?.links ?? [] where link.name == name { link.handleVendor(report) }
+            for link in self?.links ?? [] where link.index == LogiLink.direct && link.name == name { link.handleVendor(report) }
         }
         vendor.start()
     }
@@ -103,8 +104,11 @@ final class LogiButton {
         for link in links { link.restore() }
     }
 
+    private static let bluetoothPage: UInt32 = 0xFF43
+    private static let bluetoothUsage: UInt32 = 0x0202
+
     private func attach(_ device: IOHIDDevice) {
-        guard !links.contains(where: { $0.device == device }) else { return }
+        guard !links.contains(where: { $0.device == device }), !receivers.contains(where: { $0.port.device == device }) else { return }
         let result = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
         TriggerDebug.log(String(format: "device matched: %@, open 0x%08x", IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "?", result))
         guard result == kIOReturnSuccess else {
@@ -126,21 +130,38 @@ final class LogiButton {
             return
         }
         unopened.removeAll { $0 == device }
-        let link = LogiLink(device: device, owner: self)
-        links.append(link)
-        link.setUp()
-        vendor.refresh()
+        let port = HIDPPPort(device: device)
+        if IOHIDDeviceConformsTo(device, Self.bluetoothPage, Self.bluetoothUsage) {
+            add(LogiLink(port: port, owner: self))
+            vendor.refresh()
+        } else {
+            let receiver = LogiReceiver(port: port, owner: self)
+            receivers.append(receiver)
+            receiver.start()
+        }
     }
 
     private func detach(_ device: IOHIDDevice) {
         unopened.removeAll { $0 == device }
-        if let index = links.firstIndex(where: { $0.device == device }) {
-            let link = links.remove(at: index)
-            TriggerDebug.log("device removed: \(link.name), pressed=\(link.pressed)")
-            // A button held while the mouse disconnects would otherwise stay down forever.
-            if link.pressed { onChange?(false) }
-            onLinksChanged?()
-        }
+        receivers.removeAll { $0.port.device == device }
+        for link in links where link.device == device { remove(link) }
+        refreshStatus()
+    }
+
+    func add(_ link: LogiLink) {
+        links.append(link)
+        link.setUp()
+    }
+
+    /// Forgets a device that has gone, by disconnecting or, behind a receiver, by losing its link.
+    func remove(_ link: LogiLink) {
+        guard let index = links.firstIndex(where: { $0 === link }) else { return }
+        links.remove(at: index)
+        link.close()
+        TriggerDebug.log("device removed: \(link.name), pressed=\(link.pressed)")
+        // A button held while the mouse disconnects would otherwise stay down forever.
+        if link.pressed { onChange?(false) }
+        onLinksChanged?()
         refreshStatus()
     }
 
@@ -156,7 +177,7 @@ final class LogiButton {
         }
     }
 
-    fileprivate func refreshStatus() {
+    func refreshStatus() {
         if let link = links.first(where: { $0.ready }) {
             status = .ready(link.name)
         } else if !unopened.isEmpty {
@@ -193,12 +214,21 @@ final class LogiLink {
     /// The features looked up once a mouse has connected. Others are looked up when first used.
     static let knownFeatures: [UInt16] = [0x1004, 0x1814, 0x1815, 0x19B0, 0x2111, 0x2121, 0x2150, 0x2201]
 
-    let device: IOHIDDevice
-    let name: String
-    /// Whether the device presents itself as a mouse. A Logitech keyboard answers HID++ as well.
-    let isMouse: Bool
+    /// The device index of a device connected directly rather than through a receiver.
+    static let direct: UInt8 = 0xFF
+    /// "Device name and type", which names a device behind a receiver.
+    private static let nameFeature: UInt16 = 0x0005
+
+    let port: HIDPPPort
+    var device: IOHIDDevice { port.device }
+    /// `direct`, or the device's slot on its receiver, 1 to 6.
+    let index: UInt8
+    private(set) var name: String
+    /// Whether the device is a mouse. A Logitech keyboard answers HID++ as well.
+    private(set) var isMouse: Bool
+    /// Called when a device behind a receiver doesn't answer while being set up.
+    var onUnreachable: (() -> Void)?
     private unowned let owner: LogiButton
-    private let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 64)
     private var controlsIndex: UInt8 = 0
     /// Each feature's index on this device, 0 for one it doesn't have, as the root feature said.
     private(set) var features: [UInt16: UInt8] = [:]
@@ -228,23 +258,26 @@ final class LogiLink {
     private var tracker = ButtonTracker()
     var pressed: Bool { tracker.pressed }
 
-    init(device: IOHIDDevice, owner: LogiButton) {
-        self.device = device
+    /// A device connected directly, which the port belongs to alone.
+    init(port: HIDPPPort, owner: LogiButton) {
+        self.port = port
         self.owner = owner
-        name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "Logitech mouse"
-        let page = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsagePageKey as CFString) as? Int
-        let usage = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsageKey as CFString) as? Int
+        index = Self.direct
+        name = IOHIDDeviceGetProperty(port.device, kIOHIDProductKey as CFString) as? String ?? "Logitech mouse"
+        let page = IOHIDDeviceGetProperty(port.device, kIOHIDPrimaryUsagePageKey as CFString) as? Int
+        let usage = IOHIDDeviceGetProperty(port.device, kIOHIDPrimaryUsageKey as CFString) as? Int
         isMouse = page == kHIDPage_GenericDesktop && usage == kHIDUsage_GD_Mouse
-        IOHIDDeviceRegisterInputReportCallback(device, buffer, 64, { context, _, _, _, _, report, length in
-            guard let context else { return }
-            let link = Unmanaged<LogiLink>.fromOpaque(context).takeUnretainedValue()
-            link.handle(UnsafeBufferPointer(start: report, count: length))
-        }, Unmanaged.passUnretained(self).toOpaque())
+        port.onReport = { [weak self] report in self?.handle(report) }
     }
 
-    deinit {
-        IOHIDDeviceRegisterInputReportCallback(device, buffer, 64, nil, nil)
-        buffer.deallocate()
+    /// A device in one of a receiver's slots. Its name and kind are read from the device in
+    /// `setUp`, since the port's HID properties are the receiver's; until then they are guesses.
+    init(port: HIDPPPort, index: UInt8, isMouse: Bool, owner: LogiButton) {
+        self.port = port
+        self.owner = owner
+        self.index = index
+        self.isMouse = isMouse
+        name = isMouse ? "Logitech mouse" : "Logitech device"
     }
 
     private var controlBytes: [UInt8] {
@@ -253,6 +286,61 @@ final class LogiLink {
     }
 
     func setUp() {
+        guard index == Self.direct else {
+            identify { [weak self] in self?.setUpButton() }
+            return
+        }
+        setUpButton()
+    }
+
+    /// Reads the name and kind of a device behind a receiver. A device that doesn't answer has
+    /// gone to sleep or out of range since the receiver announced it, and is dropped until the
+    /// receiver announces it again.
+    private func identify(then next: @escaping () -> Void) {
+        request(0x00, 0, [UInt8(Self.nameFeature >> 8), UInt8(Self.nameFeature & 0xFF)]) { [weak self] reply in
+            guard let self else { return }
+            guard let reply else {
+                TriggerDebug.log(String(format: "slot %d didn't answer", self.index))
+                self.onUnreachable?()
+                return
+            }
+            self.remember(Self.nameFeature, at: reply[0])
+            guard reply[0] != 0 else { return next() }
+            // Function 2 is the kind: 3 a mouse, 4 a trackpad, 5 a trackball.
+            self.call(Self.nameFeature, 2) { [weak self] kind in
+                guard let self else { return }
+                if let kind { self.isMouse = (3...5).contains(kind[0]) }
+                // Function 0 is the name's length, and function 1 reads it from an offset.
+                self.call(Self.nameFeature, 0) { [weak self] length in
+                    guard let self, let length else { return next() }
+                    self.readName(length: Int(length[0]), into: []) { [weak self] name in
+                        if let self, !name.isEmpty { self.name = name }
+                        next()
+                    }
+                }
+            }
+        }
+    }
+
+    private func readName(length: Int, into bytes: [UInt8], completion: @escaping (String) -> Void) {
+        guard bytes.count < length else {
+            return completion(String(decoding: bytes.prefix { $0 != 0 }, as: UTF8.self))
+        }
+        call(Self.nameFeature, 1, [UInt8(bytes.count)]) { [weak self] chunk in
+            guard let self, let chunk, !chunk.isEmpty else {
+                return completion(String(decoding: bytes.prefix { $0 != 0 }, as: UTF8.self))
+            }
+            self.readName(length: length, into: bytes + chunk.prefix(length - bytes.count), completion: completion)
+        }
+    }
+
+    /// The receiver reports that the device has connected again, after sleep or after being
+    /// out of range. Its divert may have been forgotten, so it's asked for again.
+    func reconnected() {
+        if ready { divert() }
+    }
+
+    private func setUpButton() {
         guard owner.controlID != nil else {
             discover()
             return
@@ -376,19 +464,19 @@ final class LogiLink {
     /// to the mouse, without waiting for a reply. The mouse then keeps sending its notifications
     /// there. Only for a feature already looked up. Returns whether it was sent.
     func postOverBluetooth(_ feature: UInt16, _ function: UInt8, _ params: [UInt8]) -> Bool {
-        guard let index = features[feature], index != 0 else { return false }
+        guard self.index == Self.direct, let index = features[feature], index != 0 else { return false }
         return owner.writeVendor(Self.frame(feature: index, function: function, params: params), for: self)
     }
 
     /// Whether a request is waiting for a reply or for its turn.
     var isBusy: Bool { pending != nil || posting || !queued.isEmpty }
 
-    /// A long HID++ report: report ID, device index (0xFF addresses a directly connected device),
-    /// feature index, then function and software ID sharing a byte, then 16 parameter bytes.
-    static func frame(feature: UInt8, function: UInt8, params: [UInt8]) -> [UInt8] {
+    /// A long HID++ report: report ID, device index (`direct`, or a receiver's slot), feature
+    /// index, then function and software ID sharing a byte, then 16 parameter bytes.
+    static func frame(index: UInt8 = direct, feature: UInt8, function: UInt8, params: [UInt8]) -> [UInt8] {
         var out = [UInt8](repeating: 0, count: 20)
         out[0] = 0x11
-        out[1] = 0xFF
+        out[1] = index
         out[2] = feature
         out[3] = (function << 4) | softwareID
         for (i, byte) in params.prefix(16).enumerated() { out[4 + i] = byte }
@@ -400,8 +488,7 @@ final class LogiLink {
     /// Requests still waiting are dropped first, so none of them lands after it. It runs even
     /// before the divert has been answered, since the divert may already be on its way.
     func restore() {
-        queued.removeAll()
-        stopped = true
+        close()
         guard let before = flagsBefore else { return }
         let undivert = before & 0x01 == 0
         // Analytics may have been turned on by a divert still on its way.
@@ -412,32 +499,22 @@ final class LogiLink {
         }
     }
 
-    /// Set once the button has been handed back. Replies arriving after that change nothing.
+    /// Set once the button has been handed back or the device has gone. Replies arriving after
+    /// that change nothing.
     private var stopped = false
+
+    /// Drops requests still waiting and sends no more.
+    func close() {
+        queued.removeAll()
+        stopped = true
+    }
 
     /// Sends a request and waits until it has gone, for quitting. It goes through the same queue
     /// as every other report, so it can't overtake one sent before it.
     @discardableResult
     private func send(_ feature: UInt8, _ function: UInt8, _ params: [UInt8]) -> UInt8? {
-        let out = Self.frame(feature: feature, function: function, params: params)
-        let device = device
-        let result = Self.sender.sync { IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, 0x11, out, out.count) }
-        return result == kIOReturnSuccess ? out[3] : nil
-    }
-
-    /// Where reports are sent from. Sending blocks until the mouse acknowledges the report, 20 to
-    /// 30 ms over Bluetooth, which on the main thread would hold up the wheel's animation on every
-    /// request. (IOHIDDeviceSetReportWithCallback doesn't block, but once a process has used it
-    /// the device's input reports stopped reaching it.)
-    private static let sender = DispatchQueue(label: "LogiLink.sender", qos: .userInteractive)
-
-    /// Sends a report from `sender` and calls `sent` on the main thread with whether it went.
-    private func transmit(_ report: [UInt8], sent: @escaping (Bool) -> Void) {
-        let device = device
-        Self.sender.async {
-            let result = IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, CFIndex(report[0]), report, report.count)
-            DispatchQueue.main.async { sent(result == kIOReturnSuccess) }
-        }
+        let out = Self.frame(index: index, feature: feature, function: function, params: params)
+        return port.sendNow(out) ? out[3] : nil
     }
 
     private func request(_ feature: UInt8, _ function: UInt8, _ params: [UInt8], completion: @escaping ([UInt8]?) -> Void) {
@@ -453,10 +530,10 @@ final class LogiLink {
             queued.append(next)
             return
         }
-        let out = Self.frame(feature: next.feature, function: next.function, params: next.params)
+        let out = Self.frame(index: index, feature: next.feature, function: next.function, params: next.params)
         guard next.awaitsReply else {
             posting = true
-            transmit(out) { [weak self] sent in
+            port.transmit(out) { [weak self] sent in
                 self?.posting = false
                 next.completion(sent ? [] : nil)
                 self?.sendNext()
@@ -466,7 +543,7 @@ final class LogiLink {
         token += 1
         let mine = token
         pending = (next.feature, out[3], mine, next.completion)
-        transmit(out) { [weak self] sent in
+        port.transmit(out) { [weak self] sent in
             guard !sent, let self, let waiting = self.pending, waiting.token == mine else { return }
             self.finish(nil)
         }
@@ -534,10 +611,18 @@ final class LogiLink {
         report.withUnsafeBufferPointer { handle($0, vendor: true) }
     }
 
-    private func handle(_ report: UnsafeBufferPointer<UInt8>, vendor: Bool = false) {
+    func handle(_ report: UnsafeBufferPointer<UInt8>, vendor: Bool = false) {
         let channel = vendor ? "ble" : "hid"
         defer { if TriggerDebug.enabled, pendingConsumed == false { logOther(report, channel: channel) } }
         pendingConsumed = false
+        // A receiver refuses a request for a device it can't reach with a short HID++ 1.0 error,
+        // sub ID 0x8F, naming the request's feature index and function byte.
+        if !vendor, let waiting = pending, report.count >= 6, report[0] == 0x10, report[2] == 0x8F,
+           report[3] == waiting.feature, report[4] == waiting.address {
+            TriggerDebug.log(String(format: "receiver error %02x for slot %d feature %02x", report[5], index, report[3]))
+            finish(nil)
+            return
+        }
         guard report.count >= 12, report[0] == 0x11 else { return }
         if !vendor, let waiting = pending {
             if report[2] == waiting.feature, report[3] == waiting.address {

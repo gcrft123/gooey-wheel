@@ -15,7 +15,8 @@ import Foundation
 /// Each tap is a HID++ request, and the mouse sends its notifications to whichever channel made
 /// the last request (see `MouseWheelEvents`). While Logi Options+ runs, a tap sent as a HID
 /// report would take the scroll wheel from Options+ for a few seconds, so taps go over the
-/// Bluetooth characteristic Options+ itself uses instead.
+/// Bluetooth characteristic Options+ itself uses instead. Through a receiver there is one
+/// channel, which every program reads, so taps go as HID reports.
 enum MouseHaptics {
     enum Route {
         /// A HID report, as the app's other requests.
@@ -91,8 +92,9 @@ enum MouseHaptics {
     /// arrive late. Returns whether one was sent.
     @discardableResult
     static func play(_ kind: Kind, over route: Route = .hid) -> Bool {
-        guard enabled, let mouse = MouseLink.shared.mouse, MouseState.shared.haptics?.enabled == true,
-              route == .bluetooth || !mouse.isBusy,
+        guard enabled, let mouse = MouseLink.shared.mouse, MouseState.shared.haptics?.enabled == true else { return false }
+        let route = mouse.index == LogiLink.direct ? route : .hid
+        guard route == .bluetooth || !mouse.isBusy,
               let waveform = kind.waveform(available: MouseState.shared.hapticWaveforms) else { return false }
         let now = ProcessInfo.processInfo.systemUptime
         guard now - lastPlayed >= minimumGap else { return false }

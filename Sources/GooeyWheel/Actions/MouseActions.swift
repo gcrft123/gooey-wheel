@@ -292,11 +292,14 @@ enum MouseActions {
                 // with this app's software ID.
                 let frame = LogiLink.frame(feature: 14, function: 1, params: [2])
                 try ctx.expect(Array(frame.prefix(6)) == [0x11, 0xFF, 0x0E, 0x1B, 0x02, 0x00] && frame.count == 20, "frame \(frame.prefix(6).map { String(format: "%02x", $0) })")
+                // The same request to a device in a receiver's second slot.
+                let slot = LogiLink.frame(index: 2, feature: 14, function: 1, params: [2])
+                try ctx.expect(Array(slot.prefix(4)) == [0x11, 0x02, 0x0E, 0x1B], "slot frame \(slot.prefix(4).map { String(format: "%02x", $0) })")
             },
             SelfTest.Case("mouse.link") { ctx in
                 let mouse = try connect(ctx)
                 let names: [UInt16: String] = [0x1004: "battery", 0x1814: "host", 0x1815: "hosts", 0x19B0: "haptic", 0x2111: "smartshift", 0x2121: "wheel", 0x2150: "thumbwheel", 0x2201: "dpi"]
-                ctx.note(mouse.name + " " + LogiLink.knownFeatures.map { "\(names[$0] ?? "?")=\(mouse.features[$0] ?? 0)" }.joined(separator: " "))
+                ctx.note(mouse.name + (mouse.index == LogiLink.direct ? "" : " in receiver slot \(mouse.index)") + " " + LogiLink.knownFeatures.map { "\(names[$0] ?? "?")=\(mouse.features[$0] ?? 0)" }.joined(separator: " "))
                 try ctx.expect(LogiLink.knownFeatures.allSatisfy { mouse.features[$0] != nil }, "features not all looked up")
                 for id in ["mouse.pointerSpeed", "mouse.precision", "mouse.smartShift", "mouse.haptics", "device.easySwitch", "device.battery"] {
                     let available = try quickly(ctx, "\(id) isAvailable") { behavior(id).isAvailable() }
@@ -394,7 +397,8 @@ enum MouseActions {
                 try ctx.expect(ctx.wait(upTo: 2, until: { answered }), "the mouse stopped answering after the tick")
             },
             SelfTest.Case("mouse.hapticTickOverBluetooth") { ctx in
-                _ = try connect(ctx)
+                let mouse = try connect(ctx)
+                guard mouse.index == LogiLink.direct else { try ctx.skip("the mouse is behind a receiver") }
                 guard let haptics = state.haptics, haptics.enabled else { try ctx.skip("no haptics, or turned off on the mouse") }
                 guard MouseHaptics.enabled else { try ctx.skip("Mouse Haptic Feedback is turned off in the menu") }
                 // The Bluetooth channel is found a moment after the mouse.
@@ -433,7 +437,7 @@ enum MouseActions {
                 // The request a switch would send, caught before it reaches the mouse.
                 MouseLink.shared.post(HIDPPFeature.changeHost, 1, [1])
                 let index = try ctx.expectValue(mouse.features[HIDPPFeature.changeHost], "no index")
-                try ctx.expect(sent.count == 1 && Array(sent[0].prefix(5)) == [0x11, 0xFF, index, 0x1B, 0x01], "request \(sent.first?.prefix(5).map { String(format: "%02x", $0) } ?? [])")
+                try ctx.expect(sent.count == 1 && Array(sent[0].prefix(5)) == [0x11, mouse.index, index, 0x1B, 0x01], "request \(sent.first?.prefix(5).map { String(format: "%02x", $0) } ?? [])")
             },
         ]
     }
