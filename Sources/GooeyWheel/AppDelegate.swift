@@ -1,26 +1,27 @@
 import AppKit
-import Carbon.HIToolbox
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
-    private static let summonHotKey: UInt32 = 1
-    private static let parentStyleKey = "parentStyle"
+    /// The HID++ control ID of the button that opens the wheel.
+    private static let buttonKey = "button"
+    /// Seconds Assign Button waits for a press.
+    private static let captureTimeout: TimeInterval = 15
 
     private var controller: WheelController?
     private var statusItem: NSStatusItem?
-    private enum Trigger { case thumb, hotKey }
-    /// Each trigger keeps its own held state, so a release one of them loses (the mouse can drop
-    /// one) never makes the other ignore its presses.
-    private var heldTriggers = Set<Trigger>()
-    private let thumb = LogiButton(controlID: LogiButton.thumbPanel)
-    private var thumbItem: NSMenuItem?
+    /// Set between a press of the button and its release. The mouse can drop a release, which
+    /// `LogiButton` recovers at the next press.
+    private var buttonHeld = false
+    private let button: LogiButton
+    private var assignItem: NSMenuItem?
+    private var hapticsItem: NSMenuItem?
     /// Shown while the app lacks Accessibility, which shortcuts, typing, and window actions need.
     private var accessibilityItem: NSMenuItem?
-    /// The haptics switch and the separator after it, shown only for a mouse with a haptic motor.
-    private var hapticsItems: [NSMenuItem] = []
     private let options: LaunchOptions
 
     init(options: LaunchOptions) {
         self.options = options
+        let saved = UserDefaults.standard.object(forKey: Self.buttonKey) as? Int
+        button = LogiButton(controlID: saved.map { UInt16(truncatingIfNeeded: $0) } ?? LogiButton.thumbPanel)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -38,8 +39,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         self.controller = controller
         controller.timescale = options.timescale
         controller.reduceMotion = options.reduceMotion
-        controller.parentStyle = options.parentStyle
-            ?? ParentStyle(rawValue: UserDefaults.standard.string(forKey: Self.parentStyleKey) ?? "") ?? .shrink
 
         if options.demo {
             controller.stage = options.stage
@@ -58,10 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         SymbolicHotKey.restoreInterrupted()
         TriggerDebug.wheelState = { [weak controller] in controller?.debugState ?? "" }
         TriggerDebug.start()
-        HotKeyCenter.shared.register(id: Self.summonHotKey, keyCode: kVK_Space, modifiers: controlKey | optionKey) { [weak self] pressed in
-            self?.trigger(.hotKey, pressed)
-        }
-        if options.thumbButton { startThumbButton() }
+        if options.thumbButton { startButton() }
 
         // Open once at launch so there's something on screen, with how to summon it shown underneath.
         // The delay gives the mouse time to answer, so the hint names the right trigger.
@@ -72,42 +68,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         AutomationActions.restoreClipboard()
-        thumb.stop()
+        button.stop()
     }
 
-    /// The thumb button and the keyboard shortcut behave the same way. A quick press opens the
-    /// wheel and leaves it open; holding keeps it open until release, which picks whatever the
-    /// cursor is on. Pressing again while it's open closes it.
+    /// A quick press opens the wheel and leaves it open; holding keeps it open until release,
+    /// which picks whatever the cursor is on. Pressing again while it's open closes it.
     /// `missed` marks a release the mouse never reported, recovered at the next press.
-    private func trigger(_ source: Trigger, _ pressed: Bool, missed: Bool = false) {
+    private func buttonChanged(_ pressed: Bool, missed: Bool = false) {
         guard let controller else { return }
         if pressed {
-            guard heldTriggers.insert(source).inserted else {
-                TriggerDebug.event("\(source) press IGNORED, already held")
+            guard !buttonHeld else {
+                TriggerDebug.event("button press IGNORED, already held")
                 return
             }
+            buttonHeld = true
             if controller.isOpen {
-                TriggerDebug.event("\(source) press → close")
+                TriggerDebug.event("button press → close")
                 controller.dismiss()
             } else {
-                TriggerDebug.event("\(source) press → open")
+                TriggerDebug.event("button press → open")
                 controller.open(mode: .held)
             }
         } else {
-            guard heldTriggers.remove(source) != nil else {
-                TriggerDebug.event("\(source) release IGNORED, wasn't held")
+            guard buttonHeld else {
+                TriggerDebug.event("button release IGNORED, wasn't held")
                 return
             }
-            TriggerDebug.event("\(source) release\(missed ? " (recovered)" : "")")
+            buttonHeld = false
+            TriggerDebug.event("button release\(missed ? " (recovered)" : "")")
             controller.triggerReleased(missed: missed)
         }
     }
 
-    private func startThumbButton() {
-        thumb.onChange = { [weak self] pressed in self?.trigger(.thumb, pressed) }
-        thumb.onMissedRelease = { [weak self] in self?.trigger(.thumb, false, missed: true) }
-        thumb.onStatus = { [weak self] _ in self?.updateThumbItem() }
-        thumb.onNeedsRelaunch = {
+    private func startButton() {
+        button.onChange = { [weak self] pressed in self?.buttonChanged(pressed) }
+        button.onMissedRelease = { [weak self] in self?.buttonChanged(false, missed: true) }
+        button.onStatus = { [weak self] _ in self?.updateButtonState() }
+        button.onNeedsRelaunch = {
             guard Bundle.main.bundleURL.pathExtension == "app" else { return }
             let relaunch = Process()
             relaunch.executableURL = URL(fileURLWithPath: "/usr/bin/open")
@@ -115,36 +112,76 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             try? relaunch.run()
             NSApp.terminate(nil)
         }
-        MouseLink.shared.use(thumb)
-        thumb.start()
-        updateThumbItem()
+        MouseLink.shared.use(button)
+        button.start()
+        updateButtonState()
 
         // Other software can hand the button back to the mouse, so claim it again when the
         // frontmost app changes and when the Mac wakes.
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.didWakeNotification] {
             center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self?.thumb.reassert() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self?.button.reassert() }
             }
         }
     }
 
-    private func updateThumbItem() {
-        guard let controller else { return }
-        switch thumb.status {
-        case .ready(let name):
-            thumbItem?.title = "Thumb Button: \(name)"
-            thumbItem?.action = nil
-            controller.hintText = "Press the thumb button to open"
+    private var buttonName: String {
+        button.controlID.flatMap(LogiButton.name(of:)) ?? "Assigned Button"
+    }
+
+    /// The menu's Assign Button item and the hint under the wheel at launch, from the mouse's state.
+    private func updateButtonState() {
+        guard let controller, let item = assignItem else { return }
+        item.isHidden = !options.thumbButton
+        item.title = "Assign Button"
+        item.action = #selector(assignButton)
+        item.isEnabled = true
+        switch button.status {
+        case .ready:
+            Self.setSubtitle(item, button.isCapturing ? "Press a mouse button…" : buttonName)
+            controller.hintText = "Press the \(buttonName.lowercased()) to open"
         case .needsPermission:
-            thumbItem?.title = "Allow Input Monitoring for the Thumb Button…"
-            thumbItem?.action = #selector(openInputMonitoring)
-            controller.hintText = "Hold ⌃⌥Space to open"
+            item.title = "Allow Input Monitoring…"
+            Self.setSubtitle(item, nil)
+            item.action = #selector(openInputMonitoring)
+            controller.hintText = "Allow Input Monitoring to use your mouse"
         case .searching:
-            thumbItem?.title = "Thumb Button: No Mouse Found"
-            thumbItem?.action = nil
-            controller.hintText = "Hold ⌃⌥Space to open"
+            Self.setSubtitle(item, button.canCapture ? "\(buttonName) not on this mouse" : "No mouse found")
+            item.isEnabled = button.canCapture
+            controller.hintText = "Open the wheel from the menu bar"
         }
+    }
+
+    /// Shows `text` under the item's title, or after it before macOS 14.4.
+    private static func setSubtitle(_ item: NSMenuItem, _ text: String?) {
+        if #available(macOS 14.4, *) {
+            item.subtitle = text
+        } else if let text {
+            item.title += ": " + text
+        }
+    }
+
+    @objc private func assignButton() {
+        guard let controller else { return }
+        // Choosing it again while it waits starts the wait over.
+        button.cancelCapture()
+        let screen = Self.pointerScreen()
+        if controller.isOpen { controller.dismiss() }
+        TriggerDebug.event("menu: Assign Button")
+        controller.announce(Toast.Message(text: "Press a mouse button", symbol: "computermouse", lasts: Self.captureTimeout), on: screen)
+        button.capturePress(timeout: Self.captureTimeout) { [weak self] control in
+            guard let self else { return }
+            defer { self.updateButtonState() }
+            guard let control else {
+                controller.withdrawAnnouncement()
+                return
+            }
+            self.button.assign(control)
+            UserDefaults.standard.set(Int(control), forKey: Self.buttonKey)
+            controller.announce(Toast.Message(text: "\(self.buttonName) opens the wheel", symbol: "computermouse.fill"), on: screen)
+        }
+        updateButtonState()
     }
 
     @objc private func openInputMonitoring() {
@@ -153,12 +190,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    private static func pointerScreen() -> NSScreen {
+        let mouse = NSEvent.mouseLocation
+        return NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main ?? NSScreen.screens[0]
+    }
+
+    private var pointerScreenCenter: CGPoint {
+        let frame = Self.pointerScreen().visibleFrame
+        return CGPoint(x: frame.midX, y: frame.midY)
+    }
+
     private func openCentered(hint: Bool) {
         guard let controller, !controller.isOpen else { return }
-        let mouse = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
-        guard let frame = screen?.visibleFrame else { return }
-        controller.open(at: CGPoint(x: frame.midX, y: frame.midY), mode: .sticky, hint: hint)
+        controller.open(at: pointerScreenCenter, mode: .sticky, hint: hint)
     }
 
     private func installStatusItem() {
@@ -166,40 +210,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.button?.image = Self.statusImage()
 
         let menu = NSMenu()
-        let open = NSMenuItem(title: "Open Wheel", action: #selector(openFromMenu), keyEquivalent: " ")
-        open.keyEquivalentModifierMask = [.control, .option]
-        open.target = self
-        menu.addItem(open)
-        let thumbItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-        thumbItem.target = self
-        menu.addItem(thumbItem)
-        self.thumbItem = thumbItem
-        let accessibility = NSMenuItem(title: "Allow Accessibility for Actions…", action: #selector(openAccessibility), keyEquivalent: "")
-        accessibility.target = self
-        menu.addItem(accessibility)
-        accessibilityItem = accessibility
-        menu.addItem(.separator())
-        let haptics = NSMenuItem(title: "Mouse Haptic Feedback", action: #selector(toggleHaptics), keyEquivalent: "")
-        haptics.target = self
-        let hapticsSeparator = NSMenuItem.separator()
-        menu.addItem(haptics)
-        menu.addItem(hapticsSeparator)
-        hapticsItems = [haptics, hapticsSeparator]
-        let heading = NSMenuItem(title: "Parent Ring in Folders", action: nil, keyEquivalent: "")
-        heading.isEnabled = false
-        menu.addItem(heading)
-        for (title, style) in [("Shrink", ParentStyle.shrink), ("Hide", ParentStyle.hide)] {
-            let item = NSMenuItem(title: title, action: #selector(chooseParentStyle(_:)), keyEquivalent: "")
+        func add(_ title: String, _ action: Selector?) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
-            item.representedObject = style.rawValue
-            item.indentationLevel = 1
             menu.addItem(item)
+            return item
         }
+        _ = add("Open Wheel", #selector(openFromMenu))
+        assignItem = add("Assign Button", #selector(assignButton))
+        _ = add("Customize Wheel", #selector(customizeFromMenu))
+        hapticsItem = add("Haptic Feedback", #selector(toggleHaptics))
+        accessibilityItem = add("Allow Accessibility for Actions…", #selector(openAccessibility))
         menu.addItem(.separator())
-        menu.delegate = self
         menu.addItem(NSMenuItem(title: "Quit Gooey Wheel", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.delegate = self
         item.menu = menu
         statusItem = item
+        updateButtonState()
     }
 
     @objc private func openFromMenu() {
@@ -207,10 +234,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         openCentered(hint: false)
     }
 
-    @objc private func chooseParentStyle(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let style = ParentStyle(rawValue: raw) else { return }
-        controller?.parentStyle = style
-        UserDefaults.standard.set(raw, forKey: Self.parentStyleKey)
+    @objc private func customizeFromMenu() {
+        TriggerDebug.event("menu: Customize Wheel")
+        controller?.customize(at: pointerScreenCenter)
     }
 
     @objc private func toggleHaptics() {
@@ -227,12 +253,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         accessibilityItem?.isHidden = AXIsProcessTrusted()
-        for item in hapticsItems { item.isHidden = !MouseHaptics.supported }
-        hapticsItems.first?.state = MouseHaptics.enabled ? .on : .off
-        for item in menu.items {
-            guard let raw = item.representedObject as? String else { continue }
-            item.state = raw == controller?.parentStyle.rawValue ? .on : .off
-        }
+        hapticsItem?.isHidden = !MouseHaptics.supported
+        hapticsItem?.state = MouseHaptics.enabled ? .on : .off
+        updateButtonState()
     }
 
     /// A hub with six bubbles around it, drawn as a template image.
@@ -260,7 +283,6 @@ struct LaunchOptions {
     var timescale = 1.0
     var appearance: String?
     var iconPath: String?
-    var parentStyle: ParentStyle?
     var demoScript = DemoScript.wheel
     /// Script time at which the demo cursor freezes, for stills of one moment.
     var demoStopAt: Double?
@@ -308,7 +330,6 @@ struct LaunchOptions {
                 if parts.count == 3 { captureFrames = (parts[0], parts[1], parts[2]) }
                 i += 1
             case "--demo-stop-at": demoStopAt = next.flatMap(Double.init); i += 1
-            case "--parent": parentStyle = next.flatMap(ParentStyle.init(rawValue:)); i += 1
             default: break
             }
             i += 1

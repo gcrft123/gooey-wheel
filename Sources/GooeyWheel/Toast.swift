@@ -14,6 +14,8 @@ final class Toast: NSObject {
         var isError = false
         /// A color shown as a disc in place of the glyph, such as a color that was picked.
         var swatch: SIMD3<Float>? = nil
+        /// Seconds it stays up, for one that waits on something. Nil scales with the text.
+        var lasts: TimeInterval? = nil
     }
 
     private static let size = CGSize(width: 640, height: 180)
@@ -149,10 +151,16 @@ final class Toast: NSObject {
         }
         shown = true
         clock = 0
-        hideAt = 1.5 + Double(message.text.count) * 0.025 + (message.isError ? 1.2 : 0)
+        hideAt = message.lasts ?? 1.5 + Double(message.text.count) * 0.025 + (message.isError ? 1.2 : 0)
         panel.orderFrontRegardless()
         renderer?.invalidate()
         startLink()
+    }
+
+    /// Drains the message showing now, if any.
+    func dismiss() {
+        guard shown else { return }
+        hideAt = min(hideAt, clock)
     }
 
     private func startLink() {

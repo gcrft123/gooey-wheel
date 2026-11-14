@@ -1,14 +1,6 @@
 import Foundation
 import simd
 
-/// What the parent ring does while one of its folders is open.
-enum ParentStyle: String {
-    /// It shrinks and dims in place, and hovering it goes back.
-    case shrink
-    /// It disappears.
-    case hide
-}
-
 struct Tuning {
     var ringRadius = 108.0
     var bubbleRadius = 30.0

@@ -6,7 +6,6 @@ final class WheelSim {
     enum Mode { case held, sticky }
 
     var tuning = Tuning()
-    var parentStyle = ParentStyle.shrink
     var store = WheelStore.temporary()
     private(set) var phase = Phase.closed
     var mode = Mode.sticky
@@ -336,7 +335,7 @@ final class WheelSim {
 
         nextID += 1
         let child = Level(id: nextID, kind: kind, entries: entries(for: kind), symbol: symbol(for: b), color: item.color, center: home, tuning: t)
-        if parentStyle == .shrink, !isBar {
+        if !isBar {
             child.arcMid = phi
             child.arcLimit = t.childArc
             child.reversed = cos(phi) < -0.01
@@ -417,8 +416,8 @@ final class WheelSim {
         level.hubHalfH.snap(0)
         level.hubHalfW.config = t.hubMorph
         level.hubHalfH.config = t.hubMorph
-        level.scale.snap(parentStyle == .shrink ? t.parentScale : 0)
-        level.alpha.snap(parentStyle == .shrink ? t.parentAlpha : 0)
+        level.scale.snap(t.parentScale)
+        level.alpha.snap(t.parentAlpha)
         spawn(level, delay: 0)
     }
 
@@ -721,9 +720,8 @@ final class WheelSim {
                 level.scale.target = 1
                 level.alpha.target = 1
             case .ghost:
-                let shown = parentStyle == .shrink
-                level.scale.target = shown ? t.parentScale * (hoverBack ? 1.14 : 1) : 0
-                level.alpha.target = shown ? (hoverBack ? 0.92 : t.parentAlpha) : 0
+                level.scale.target = t.parentScale * (hoverBack ? 1.14 : 1)
+                level.alpha.target = hoverBack ? 0.92 : t.parentAlpha
             case .buried, .dying:
                 break
             }
