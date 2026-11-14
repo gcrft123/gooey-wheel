@@ -60,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Shown while the app lacks Accessibility, which shortcuts, typing, and window actions need.
     private var accessibilityItem: NSMenuItem?
     private let options: LaunchOptions
+    private var updater: Updater?
 
     init(options: LaunchOptions) {
         self.options = options
@@ -96,6 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
 
+        updater = Updater.make()
         installStatusItem()
         // Previous App needs the order apps came forward in from the start.
         _ = AppHistory.shared
@@ -340,6 +342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hapticsItem = add("Haptic Feedback", #selector(toggleHaptics))
         accessibilityItem = add("Allow Accessibility for Actions…", #selector(openAccessibility))
         menu.addItem(.separator())
+        if let updater { menu.addItem(updater.menuItem) }
         menu.addItem(NSMenuItem(title: "Quit Gooey Wheel", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         menu.delegate = self
         item.menu = menu

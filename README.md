@@ -13,7 +13,13 @@ open "build/Gooey Wheel.app"
 
 Requires macOS 14 or later and the Swift toolchain from Xcode. The app has a menu bar item and no Dock icon.
 
-The menu bar item has Open Wheel, Assign Button, Customize Wheel, Haptic Feedback, and Quit Gooey Wheel. Assign Button shows the mouse button that opens the wheel; choosing it waits up to 15 seconds for a press and assigns whichever button is pressed, other than the left and right buttons. Customize Wheel opens the wheel in configuration. Haptic Feedback, shown only for a mouse with a haptic motor the app can drive, turns the wheel's taps through the mouse on or off.
+The menu bar item has Open Wheel, Assign Button, Customize Wheel, Haptic Feedback, Check for Updates, and Quit Gooey Wheel. Assign Button shows the mouse button that opens the wheel; choosing it waits up to 15 seconds for a press and assigns whichever button is pressed, other than the left and right buttons. Customize Wheel opens the wheel in configuration. Haptic Feedback, shown only for a mouse with a haptic motor the app can drive, turns the wheel's taps through the mouse on or off.
+
+## Updates
+
+The app updates itself from this repository's GitHub releases, through [Sparkle](https://sparkle-project.org). On the second launch Sparkle asks whether to check automatically, and then checks once a day. An update found by an automatic check doesn't open a window: the menu bar item's Check for Updates reads "Update Available…" with the new version under it, and choosing it shows the release notes and installs. Check for Updates checks at once.
+
+The feed is `appcast.xml` on the latest release, at `https://github.com/gcrft123/gooey-wheel/releases/latest/download/appcast.xml`. Sparkle installs an update only if its archive carries an EdDSA signature made with the key whose public half is `SUPublicEDKey` in the app's Info.plist. GitHub serves release files only for a public repository.
 
 ## Use
 
@@ -163,6 +169,7 @@ Taps are on by default. The menu bar item's "Haptic Feedback" turns them off and
 - `LogiButton.swift` asks a Logitech mouse to divert the assigned button (the thumb panel is control `0x01A0`) and listens for its press and release notifications. It also lists the mouse's buttons and diverts them all for a moment to find the one pressed for Assign Button. `ButtonTracker` merges the two reports the mouse sends for each change and recovers releases it drops. `VendorChannel.swift` listens for the same notifications on Logitech's Bluetooth characteristic. `LogiReceiver.swift` finds devices behind a Bolt receiver from its connection notifications, and `HIDPPPort.swift` is the opened HID interface that a Bluetooth mouse has alone and a receiver's devices share.
 - `Actions/` holds what the bubbles do. `ActionRuntime.swift` defines an action's behavior: what choosing it does, and for a control its state, level, steps, or choices. Each category's actions are in their own file, such as `AudioActions.swift`, `WindowActions.swift`, and `SystemActions.swift`. `ActionRunner.swift` runs a chosen item, waiting for the wheel to leave the screen first when the action captures or covers it, and answers the wheel's questions about state. `KeySender.swift` posts key combinations, media keys, and text, finding keys by the character they type in the current keyboard layout. `MouseActions.swift` holds the mouse's settings, with `TrackingSpeed.swift` and `MouseBattery.swift` for mice that don't speak HID++.
 - `WheelSim+Controls.swift` is the wheel's side of the controls: the state it last read for each item, scrolling, a slider's bar, and pickers. A bar is a `Level` whose hub is the bar; a picker is a `Level` whose bubbles are the choices.
+- `Updater.swift` starts Sparkle's updater and owns the Check for Updates menu item. Sparkle is a binary target in `Package.swift`, taken from the release zip Sparkle publishes for SwiftPM.
 - `HotKey.swift` registers Esc through Carbon while the wheel is open, which needs no Accessibility permission.
 
 ## Checking the actions
@@ -170,6 +177,24 @@ Taps are on by default. The menu bar item's "Haptic Feedback" turns them off and
 `GooeyWheel --self-test [pattern]` checks the actions against the Mac it runs on and prints one line per check, PASS, FAIL, or SKIP with the reason. It doesn't disturb whoever is using the Mac. Key presses go to a hidden window of its own, window actions move a hidden window of its own, settings are written back with the value they already have, the clipboard is put back, and an action whose effect would be visible is checked up to the point where it would act. The pattern is a regular expression over the checks' names, such as `audio|media`.
 
 `GooeyWheel --run-action <id> [argument]` runs one action as the wheel would, for checking it by hand. `GooeyWheel --toast-preview <folder>` shows a few sample messages in the bottom-right corner of the screen and writes images of them into the folder.
+
+## Releasing
+
+```sh
+./scripts/release.sh 1.2.0 notes.md
+```
+
+The script builds the app signed with the Developer ID Application certificate, with the hardened runtime, notarizes and staples it, and publishes release `v1.2.0` with two files: `Gooey-Wheel-1.2.0.zip` and an `appcast.xml` that lists it and the two versions before it, taken from the previous release's appcast. The release is a draft until both files are uploaded, so the latest release always has an appcast.
+
+`notes.md` starts with the release's title as a heading, `# v1.2.0: What changed`. The rest is the release notes, shown on the GitHub release and, as Markdown, in the app's update window. `--dry-run` after the notes stops before publishing, leaving the files in `build/release/1.2.0/feed`.
+
+The version users see comes from the argument. The build number Sparkle compares is the number of commits on `HEAD`, so a release has to be cut from `main`, and the script refuses one that isn't newer than the latest release. `scripts/build-app.sh` takes the version from `GOOEY_VERSION`, or the newest `v*` tag, and the certificate from `GOOEY_SIGN_IDENTITY`.
+
+It needs:
+
+- The Sparkle signing key in the login keychain under the account `dev.gooey.wheel`. `generate_keys --account dev.gooey.wheel -x <file>` exports it for another Mac, and `-f <file>` imports it there. The tools are in `.build/artifacts/*/Sparkle/bin` after a build. A lost key can't be replaced without shipping a build with a new public key first.
+- A notarytool keychain profile, made once with `xcrun notarytool store-credentials notarytool`. `GOOEY_NOTARY_PROFILE` names another profile. `GOOEY_SKIP_NOTARIZE=1` publishes without notarizing; Sparkle still installs that release, but Gatekeeper won't open a fresh download of it.
+- `gh`, signed in with access to the repository.
 
 ## Recording a demo
 
