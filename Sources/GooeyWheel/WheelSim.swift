@@ -59,10 +59,6 @@ final class WheelSim {
     var onSelect: ((WheelItem) -> Void)?
     /// One of a picker's choices was made and the wheel is closing.
     var onChoose: ((LiveChoice, WheelItem) -> Void)?
-    /// A level crossed a detent, or a stepper stepped: the moment for a haptic tick.
-    var onDetent: (() -> Void)?
-    /// A slider reached its end.
-    var onLimit: (() -> Void)?
     /// A ring opened from a bubble: a folder, a picker, a slider's bar, or an item's edit options.
     var onEnter: (() -> Void)?
     /// The active ring closed back to its parent.

@@ -223,19 +223,17 @@ extension WheelSim {
             guard notches != 0 else { return }
             scrollCarry -= Double(notches)
             controls.step(item, by: notches)
-            onDetent?()
             if let b = hoveredBubble { b.radius.velocity += 90 * Double(notches.signum()) }
         default:
             break
         }
     }
 
-    /// Writes a slider's level and shows it at once, ticking for each detent crossed.
+    /// Writes a slider's level and shows it at once.
     func setLevel(of item: WheelItem, to value: Double) {
         guard let controls else { return }
         let next = clamp01(value)
-        let before = live(item)?.level ?? next
-        guard abs(next - before) > 0.0005 else { return }
+        guard abs(next - (live(item)?.level ?? next)) > 0.0005 else { return }
         controls.setLevel(item, next)
         adjustedAt[item.id] = time
         var state = liveStates[item.id] ?? LiveState()
@@ -243,12 +241,6 @@ extension WheelSim {
         state.detail = controls.format(item, level: next) ?? state.detail
         state.symbol = controls.liveSymbol(item) ?? state.symbol
         liveStates[item.id] = state
-        let detent = max(controls.detent(item), 0.001)
-        if next == 0 || next == 1 {
-            onLimit?()
-        } else if Int((before / detent).rounded(.down)) != Int((next / detent).rounded(.down)) {
-            onDetent?()
-        }
         for b in bubbles where b.entry.item?.id == item.id {
             b.levelShown.target = next
         }

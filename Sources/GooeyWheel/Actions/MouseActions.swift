@@ -443,7 +443,7 @@ enum MouseActions {
                 try ctx.expect(MouseState.parseHapticWaveforms([0, 0, 0, 0, 0, 0, 0, 0]) == nil, "an empty list is known")
                 try ctx.expect(MouseHaptics.Kind.hover.waveform(available: all) == .whisperCollision, "hover")
                 try ctx.expect(MouseHaptics.Kind.hover.waveform(available: 0x1F) == .subtleCollision, "hover without whisper")
-                try ctx.expect(MouseHaptics.Kind.open.waveform(available: 0x01) == .sharpStateChange, "open with only sharp")
+                try ctx.expect(MouseHaptics.Kind.lift.waveform(available: 0x01) == .sharpStateChange, "lift with only sharp")
                 try ctx.expect(MouseHaptics.Kind.back.waveform(available: 0x01) == nil, "back with nothing fitting")
                 for kind in MouseHaptics.Kind.allCases {
                     try ctx.expect(kind.waveform(available: nil) == kind.waveforms.first, "\(kind) with the list unknown")

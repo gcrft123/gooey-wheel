@@ -121,8 +121,8 @@ final class WheelController: NSObject {
             self?.tapMouse(.hover)
         }
         sim.onSelect = { [weak self] item in
-            NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
-            self?.tapMouse(.select)
+            NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+            self?.tapMouse(.run)
             // A demo plays the wheel for a recording. It never acts on this Mac.
             guard let self, self.demo == nil else { return }
             self.toastPoint = self.screenPoint(self.sim.hubPosition)
@@ -134,14 +134,6 @@ final class WheelController: NSObject {
             guard let self, self.demo == nil else { return }
             self.toastPoint = self.screenPoint(self.sim.hubPosition)
             self.runner.choose(choice, of: item)
-        }
-        sim.onDetent = { [weak self] in
-            NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
-            self?.tapMouse(.step)
-        }
-        sim.onLimit = { [weak self] in
-            NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
-            self?.tapMouse(.limit)
         }
         sim.onEnter = { [weak self] in self?.tapMouse(.open) }
         sim.onBack = { [weak self] in self?.tapMouse(.back) }
@@ -453,7 +445,7 @@ final class WheelController: NSObject {
             tapMouse(.select)
         case .lifted:
             haptics.perform(.alignment, performanceTime: .now)
-            tapMouse(.open)
+            tapMouse(.lift)
         case .refused:
             haptics.perform(.generic, performanceTime: .now)
             tapMouse(.refuse)
