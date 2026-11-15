@@ -38,15 +38,15 @@ enum MouseHaptics {
     enum Kind: CaseIterable {
         /// The pointer moved onto a bubble.
         case hover
-        /// A slider moved by one notch, or a stepper stepped.
-        case step
-        /// A slider reached its end.
-        case limit
         /// A folder, picker, slider, or edit ring opened.
         case open
+        /// A bubble was picked up to move it.
+        case lift
         /// A ring closed back to its parent.
         case back
-        /// An item was chosen, or the wheel's contents changed.
+        /// An item was chosen and its action runs.
+        case run
+        /// A picker's choice was made, or the wheel's contents changed.
         case select
         /// Something chosen can't be done.
         case refuse
@@ -55,10 +55,10 @@ enum MouseHaptics {
         var waveforms: [Waveform] {
             switch self {
             case .hover: return [.whisperCollision, .subtleCollision]
-            case .step: return [.subtleCollision, .whisperCollision]
-            case .limit: return [.sharpCollision, .dampCollision]
-            case .open: return [.dampStateChange, .sharpStateChange]
+            case .open: return [.subtleCollision, .whisperCollision]
+            case .lift: return [.dampStateChange, .sharpStateChange]
             case .back: return [.dampCollision, .subtleCollision]
+            case .run: return [.subtleCollision, .whisperCollision]
             case .select: return [.sharpStateChange, .dampStateChange]
             case .refuse: return [.sharpCollision, .dampCollision]
             }
