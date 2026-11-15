@@ -31,6 +31,14 @@ cp "$products/libGooeyNowPlaying.dylib" "$helper"
 sparkle="$app/Contents/Frameworks/Sparkle.framework"
 ditto "$products/Sparkle.framework" "$sparkle"
 rm -rf "$sparkle/Versions/B/XPCServices" "$sparkle/XPCServices"
+# Sparkle's MIT license asks for its notice in every copy, so the app carries it. It comes in the
+# same zip as the framework.
+sparkle_license=(.build/artifacts/*/Sparkle/LICENSE(N))
+if (( ${#sparkle_license} != 1 )); then
+  echo "Expected one Sparkle LICENSE in .build/artifacts, found ${#sparkle_license}." >&2
+  exit 1
+fi
+cp "$sparkle_license[1]" "$app/Contents/Resources/Sparkle LICENSE.txt"
 
 # The welcome panel's video (scripts/render-welcome-video.sh makes it).
 cp assets/welcome.mov "$app/Contents/Resources/welcome.mov"
