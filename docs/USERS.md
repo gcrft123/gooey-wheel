@@ -14,6 +14,10 @@ The round button in the bottom-left corner goes back, and the one in the bottom-
 
 Later launches open the wheel straight away. Launching with `--welcome`, or deleting the `welcomed` default, shows the panel again.
 
+## The default wheel
+
+A new wheel has the most-used actions in the four straight directions: Mission Control up, Volume right, Screenshot down, and Previous App left. Up and left match the trackpad's swipe up for Mission Control and the usual left for back. Each diagonal introduces one kind of bubble: Media Controls (a picker), a Controls folder of toggles and Sound Output, a Windows folder of Move Window layouts, and Customize Wheel. Customize Wheel's hub reads "Or right-click" to teach the shortcut.
+
 ## The menu bar item
 
 | Item | What it does |
@@ -22,7 +26,6 @@ Later launches open the wheel straight away. Launching with `--welcome`, or dele
 | Assign Button | Shows the button that opens the wheel. Choosing it waits up to 15 seconds and assigns the next button pressed, other than the left and right buttons |
 | Customize Wheel | Opens the wheel in configuration |
 | Haptic Feedback | Turns the wheel's taps through the mouse on or off. Shown only while a mouse with a supported haptic motor is connected |
-| Dev Mode | Swaps the user's wheel for the starter layout (see [Dev Mode](#dev-mode)) |
 | Check for Updates… | Checks for a new version (see [Updates](#updates)) |
 | Quit Gooey Wheel | Quits |
 
@@ -117,12 +120,6 @@ Action, Color, Icon, and Rename each open a panel that grows out of the edit opt
 
 While the key combination field has focus, it takes every key press before macOS and other apps see it, so a combination such as ⌘Space is recorded instead of run. Esc alone still goes back, and Delete alone clears the field. This needs Accessibility. Without it, combinations that macOS or another app has claimed run as usual.
 
-## Dev Mode
-
-Dev Mode replaces the user's wheel with the starter layout, which is planned to become the default. The user's wheel is left alone and comes back when Dev Mode is turned off. The starter layout resets at every launch and every time Dev Mode is turned on, so changes to it last until the next launch.
-
-The starter layout puts the most-used actions in the four straight directions: Mission Control up, Volume right, Screenshot down, and Previous App left. Up and left match the trackpad's swipe up for Mission Control and the usual left for back. Each diagonal introduces one kind of bubble: Media Controls (a picker), a Controls folder of toggles and Sound Output, a Windows folder of Move Window layouts, and Customize Wheel. Customize Wheel's hub reads "Or right-click" to teach the shortcut.
-
 ## Choosing the mouse button
 
 Any mouse button other than the left and right buttons can open the wheel. Once assigned, the button stops doing what it did before.
@@ -165,7 +162,7 @@ The app updates itself from GitHub releases through [Sparkle](https://sparkle-pr
 
 ## Where things are saved
 
-The wheel is saved to `~/Library/Application Support/Gooey Wheel/wheel.json`. Pictures added in the Icon panel are copied to `Icons` in the same folder, and a picture no item uses is deleted at the next launch. Dev Mode's wheel is `Dev Mode/wheel.json` in the same folder.
+The wheel is saved to `~/Library/Application Support/Gooey Wheel/wheel.json`. Pictures added in the Icon panel are copied to `Icons` in the same folder, and a picture no item uses is deleted at the next launch.
 
 Wheels saved by earlier versions are updated when they load. Merged actions move to the action that replaced them; for example, Volume Up and Volume Down become Volume. Retired actions with no replacement, such as Scroll Up, keep their name and wait for a new action.
 
@@ -175,6 +172,5 @@ Settings are in the `dev.gooey.wheel` defaults domain.
 | --- | --- |
 | `mouseButton` | The assigned button's macOS button number |
 | `button` | The assigned Logitech control's HID++ id |
-| `devMode` | Whether Dev Mode is on |
 | `welcomed` | Whether the welcome panel has been closed. Delete it to see the panel again |
 | `TriggerDebug` | Turns on the mouse input log (see [TESTING.md](TESTING.md#the-mouse-input-log)) |

@@ -121,39 +121,15 @@ enum WheelLimits {
 }
 
 extension WheelItem {
-    /// At the root, slot 0 sits at 12 o'clock and the rest follow clockwise. A folder's items
-    /// fan out from the top of its arc.
-    static let defaults: [WheelItem] = [
-        .action("system.screenshot"),
-        .action("desktop.missionControl"),
-        .folder("Media", symbol: "music.note", [
-            .action("media.previous"),
-            .action("media.playPause"),
-            .action("media.next"),
-            .action("media.volume"),
-            .action("media.mute"),
-            .action("media.output"),
-        ]),
-        .action("system.emoji"),
-        .action("system.lockScreen"),
-        .action("edit.paste"),
-        .folder("Apps", symbol: "square.grid.2x2", [
-            .action("apps.open", argument: "com.apple.Safari", title: "Safari", symbol: "safari"),
-            .action("apps.open", argument: "com.apple.mail", title: "Mail", symbol: "envelope"),
-            .action("apps.open", argument: "com.apple.Notes", title: "Notes", symbol: "note.text"),
-            .action("apps.open", argument: "com.apple.iCal", title: "Calendar", symbol: "calendar"),
-            .action("apps.open", argument: "com.apple.Terminal", title: "Terminal", symbol: "terminal"),
-            .action("apps.open", argument: "com.apple.finder", title: "Finder", symbol: "folder"),
-        ]),
-        .action("edit.copy"),
-    ]
+    // At the root, slot 0 sits at 12 o'clock and the rest follow clockwise. A folder's items
+    // fan out from the top of its arc.
 
-    /// The layout Dev Mode resets to, meant to replace `defaults`. The four straight directions
-    /// hold the actions used most, two of them where a trackpad gesture already points: up for
-    /// Mission Control, left for back to the previous app. Each other bubble is the first of
-    /// a kind: a picker, a folder of windows that preview where they go, a folder of toggles,
-    /// and Customize Wheel, which teaches right-clicking and is meant to be removed.
-    static let starter: [WheelItem] = [
+    /// The wheel on first launch. The four straight directions hold the actions used most,
+    /// two of them where a trackpad gesture already points: up for Mission Control, left for
+    /// back to the previous app. Each other bubble is the first of a kind: a picker, a folder
+    /// of windows that preview where they go, a folder of toggles, and Customize Wheel, which
+    /// teaches right-clicking and is meant to be removed.
+    static let defaults: [WheelItem] = [
         .action("desktop.missionControl"),
         .action("media.controls"),
         .action("media.volume"),
@@ -176,5 +152,32 @@ extension WheelItem {
             .action("desktop.minimize"),
             .action("desktop.fullScreen"),
         ]),
+    ]
+
+    /// The scripted demo's wheel, which the demo scripts and the welcome video find their
+    /// bubbles in by name.
+    static let demo: [WheelItem] = [
+        .action("system.screenshot"),
+        .action("desktop.missionControl"),
+        .folder("Media", symbol: "music.note", [
+            .action("media.previous"),
+            .action("media.playPause"),
+            .action("media.next"),
+            .action("media.volume"),
+            .action("media.mute"),
+            .action("media.output"),
+        ]),
+        .action("system.emoji"),
+        .action("system.lockScreen"),
+        .action("edit.paste"),
+        .folder("Apps", symbol: "square.grid.2x2", [
+            .action("apps.open", argument: "com.apple.Safari", title: "Safari", symbol: "safari"),
+            .action("apps.open", argument: "com.apple.mail", title: "Mail", symbol: "envelope"),
+            .action("apps.open", argument: "com.apple.Notes", title: "Notes", symbol: "note.text"),
+            .action("apps.open", argument: "com.apple.iCal", title: "Calendar", symbol: "calendar"),
+            .action("apps.open", argument: "com.apple.Terminal", title: "Terminal", symbol: "terminal"),
+            .action("apps.open", argument: "com.apple.finder", title: "Finder", symbol: "folder"),
+        ]),
+        .action("edit.copy"),
     ]
 }

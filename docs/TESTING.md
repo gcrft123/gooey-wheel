@@ -66,12 +66,12 @@ Defaults can be set for one run through the argument domain, such as `-TriggerDe
 | `--reduce-motion` | Plays the Reduce Motion version |
 | `--demo-exit` | Quits after one pass |
 | `--demo-root-count <n>` | Starts with only the first n items on the wheel |
-| `--demo-starter` | Uses Dev Mode's starter layout |
+| `--demo-defaults` | Uses the first-launch wheel instead of the demo's own |
 | `--demo-marks` | Prints the script's named moments and their times, then quits |
 | `--demo-stop-at <time>` | Freezes the script at that time |
 | `--demo-stage-rect` | Prints the stage's rectangle in the form `screencapture -R` takes, then quits |
 
-The demo uses the default wheel and saves nothing. Its app list shows only apps that come with macOS, its shortcut list is made up, and the controls script's states are made up, so it never reads or changes this Mac's settings. Inside the panels, the configure script sends its clicks, drags, and key presses through the demo's own window, so it never moves the real pointer or types on the real keyboard. The demo doesn't take the Esc key.
+The demo uses a wheel of its own, which the scripts find their bubbles in by name, and saves nothing. Its app list shows only apps that come with macOS, its shortcut list is made up, and the controls script's states are made up, so it never reads or changes this Mac's settings. Inside the panels, the configure script sends its clicks, drags, and key presses through the demo's own window, so it never moves the real pointer or types on the real keyboard. The demo doesn't take the Esc key.
 
 The stage sits in the bottom-right corner of the main display. On a 2560 × 1440 display its rectangle is `1700,780,836,636` for the default script and `1460,600,1076,816` for the configure script. Pass the same `--demo-script` to `--demo-stage-rect` to get the right one. While a demo is playing, this records 11 seconds of it:
 
