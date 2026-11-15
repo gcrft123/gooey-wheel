@@ -50,6 +50,8 @@ Some actions have a state, and their bubbles show it and change it in place.
 
 Hovering a Move Window bubble shows where the front window would go, as a tinted outline on the screen.
 
+A Previous App bubble shows the icon of the app it would bring forward, the one that was in front before the current app, and the hub names it. An icon chosen for the item replaces it.
+
 An action this Mac or mouse can't run, such as Keyboard Brightness without a backlit Apple keyboard or Free Spin on a mouse without a free-spinning wheel, is shown faded, says so in the hub, and shakes its head when chosen.
 
 ### Mouse actions

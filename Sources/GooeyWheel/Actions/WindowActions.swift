@@ -28,18 +28,7 @@ enum WindowActions {
             "desktop.nextDisplay": ActionBehavior(isAvailable: { NSScreen.screens.count > 1 }, run: { invocation in
                 try moveToNextDisplay(invocation)
             }),
-            "desktop.switchApps": ActionBehavior(run: { invocation in
-                guard let pid = AppSwitching.previousApp(
-                    recent: AppHistory.shared.recent,
-                    windowOwners: AppSwitching.windowOwnersFrontToBack(),
-                    frontmost: frontmost(invocation)?.processIdentifier,
-                    running: AppSwitching.runningApps,
-                    exclude: getpid()
-                ), let app = NSRunningApplication(processIdentifier: pid) else {
-                    throw ActionError.failed("No other app to switch to")
-                }
-                AppSwitching.activate(app)
-            }),
+            "desktop.switchApps": previousApp,
             "desktop.hideApp": ActionBehavior(run: { invocation in
                 guard let app = frontmost(invocation) else { throw ActionError.failed("No app is in front") }
                 // The window server doesn't hide an accessory app such as the wheel, so the
@@ -72,6 +61,32 @@ enum WindowActions {
 
     private static func frontmost(_ invocation: ActionInvocation) -> NSRunningApplication? {
         invocation.frontmost ?? NSWorkspace.shared.frontmostApplication
+    }
+
+    // MARK: Previous App
+
+    /// The app Previous App would bring forward now.
+    static func previousApp(_ invocation: ActionInvocation) -> NSRunningApplication? {
+        AppSwitching.previousApp(
+            recent: AppHistory.shared.recent,
+            windowOwners: AppSwitching.windowOwnersFrontToBack(),
+            frontmost: frontmost(invocation)?.processIdentifier,
+            running: AppSwitching.runningApps,
+            exclude: getpid()
+        ).flatMap(NSRunningApplication.init(processIdentifier:))
+    }
+
+    /// Brings the previous app forward. The bubble shows that app's icon, and the hub its name.
+    private static var previousApp: ActionBehavior {
+        var behavior = ActionBehavior(run: { invocation in
+            guard let app = previousApp(invocation) else { throw ActionError.failed("No other app to switch to") }
+            AppSwitching.activate(app)
+        })
+        behavior.liveSymbol = { invocation in
+            previousApp(invocation)?.bundleIdentifier.map { ItemIcon.app($0).name }
+        }
+        behavior.liveDetail = { invocation in previousApp(invocation)?.localizedName }
+        return behavior
     }
 
     // MARK: Moving
