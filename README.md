@@ -50,9 +50,11 @@ Once you've got a feel for the wheel (no rhyme intended), you can right click wi
  
 Speaking of which, folders let you group items together and fit more into your wheel. Simply enter Configuration Mode and open one to customize the actions inside. It works like iOS, so you can drag items on top of each other to create a folder, and drag them into and out of existing folders.
 
+###
  
 <img width="800" height="524" alt="Folders" src="https://github.com/user-attachments/assets/eda3b882-4885-4b0d-8bde-971a22678190" />
 
+###
  
 Click any item (or folder's pen icon) in Configuration Mode to customize its action, icon, color, and name. You can choose from almost any Apple system icon, an app icon, or upload your own image. 
 
