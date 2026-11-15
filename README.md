@@ -27,11 +27,11 @@ ___
 
 <a href="https://github.com/gcrft123/gooey-wheel/releases/latest/download/Gooey-Wheel.zip"><b>Download</b></a> the latest Gooey Wheel release, and install it onto your Mac (it updates automatically once a GitHub release is published). The onboarding will take you through assigning an activation button, which is always reconfigurable in the menu bar item. Gooey will open the wheel for you for the first time. 
 
-It can hold up to 8 different actions: click one of them to try out the defaults. To close the wheel, click Esc, the X button in the center, the space outside the wheel, or the activation button. 
+It can hold up to 8 different actions: click one of them to try out the defaults. To close the wheel, press Esc, the X button in the center, the space outside the wheel, or the activation button. 
 
 # Pulling up Gooey
 
-A single click of the activation button opens the wheel, and holding it down opens the wheel until you let go. In hold mode, dragging your mouse to any option and release to select it. Dragging onto a folder opens its items, and dragging back closes it. Gooey can be opened anywhere on your Mac.
+A single click of the activation button opens the wheel, and holding it down opens the wheel until you let go. In hold mode, drag your mouse to any option and release to select it. Dragging onto a folder opens its items, and dragging back closes it. Gooey can be opened anywhere on your Mac.
 
  
 <img width="1880" height="968" alt="Gooey Wheel" src="https://github.com/user-attachments/assets/8ff5fc56-0041-40de-be68-67c33adc33e9" />
