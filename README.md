@@ -122,7 +122,7 @@ While a folder is open, the ring it came from shrinks and dims in place, and the
 
 ## Actions
 
-Actions are listed by category in the Action panel, with a search field. Actions that take a setting show it on the right: a window layout or screenshot kind as tiles, a folder with one-click presets for the usual places, an app, a link, a key combination, text, a shortcut, or a script.
+Actions are listed by category in the Action panel, with a search field. Actions that take a setting show it on the right: a window layout or screenshot kind as tiles, a folder with one-click presets for the usual places, an app, a link, a key combination, text, a shortcut, or a script. [docs/ACTIONS.md](docs/ACTIONS.md) lists every action with its options and control.
 
 Wheels saved by earlier versions are brought up to date when they load. Actions that were merged move to the action that replaced them: Volume Up, Volume Down and Set Volume to Volume, the thirteen window positions to Move Window, the four screenshot actions to Screenshot, the folder shortcuts to Open Folder, and so on. Retired actions with no equivalent, such as Scroll Up or Left Click, keep their name and wait for a new action.
 
