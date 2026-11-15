@@ -21,16 +21,8 @@ final class WheelStore {
         return WheelStore(url: supportFolder.appendingPathComponent("wheel.json"))
     }
 
-    /// Dev Mode's wheel: the starter layout, started over each time this is called. It is
-    /// saved in a folder of its own, with its own icons, so the saved wheel is left alone.
-    static func starter() -> WheelStore {
-        let folder = supportFolder.appendingPathComponent("Dev Mode", isDirectory: true)
-        try? FileManager.default.removeItem(at: folder)
-        return WheelStore(url: folder.appendingPathComponent("wheel.json"), initial: WheelItem.starter)
-    }
-
-    /// The default wheel, or `items`, never written to disk. Used by the scripted demo.
-    static func temporary(_ items: [WheelItem] = WheelItem.defaults, rootCount: Int? = nil) -> WheelStore {
+    /// `items`, never written to disk. Used by the scripted demo.
+    static func temporary(_ items: [WheelItem] = WheelItem.demo, rootCount: Int? = nil) -> WheelStore {
         let store = WheelStore(url: nil, initial: items)
         if let rootCount { store.root = Array(store.root.prefix(rootCount)) }
         return store

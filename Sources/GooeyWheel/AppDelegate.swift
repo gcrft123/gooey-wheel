@@ -57,14 +57,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let standard = MouseButtonTap()
     private var assignItem: NSMenuItem?
     private var hapticsItem: NSMenuItem?
-    private var devModeItem: NSMenuItem?
-    /// While on, the wheel shows the starter layout, started over at every launch and each time
-    /// Dev Mode is turned on. The saved wheel stays as it was.
-    private static let devModeKey = "devMode"
-    private static var devMode: Bool {
-        get { UserDefaults.standard.bool(forKey: devModeKey) }
-        set { UserDefaults.standard.set(newValue, forKey: devModeKey) }
-    }
     /// Shown while the app lacks Accessibility, which shortcuts, typing, and window actions need.
     private var accessibilityItem: NSMenuItem?
     private let options: LaunchOptions
@@ -93,9 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         AppIndex.systemAppsOnly = options.demo
         let store: WheelStore
         if options.demo {
-            store = .temporary(options.demoStarter ? WheelItem.starter : WheelItem.defaults, rootCount: options.demoRootCount)
-        } else if Self.devMode {
-            store = .starter()
+            store = .temporary(options.demoDefaults ? WheelItem.defaults : WheelItem.demo, rootCount: options.demoRootCount)
         } else {
             store = .saved(at: options.storePath)
         }
@@ -471,8 +461,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hapticsItem = add("Haptic Feedback", #selector(toggleHaptics))
         accessibilityItem = add("Allow Accessibility for Actions…", #selector(openAccessibility))
         menu.addItem(.separator())
-        devModeItem = add("Dev Mode", #selector(toggleDevMode))
-        menu.addItem(.separator())
         if let updater { menu.addItem(updater.menuItem) }
         menu.addItem(NSMenuItem(title: "Quit Gooey Wheel", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         menu.delegate = self
@@ -495,12 +483,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         MouseHaptics.enabled.toggle()
     }
 
-    @objc private func toggleDevMode() {
-        Self.devMode.toggle()
-        TriggerDebug.event("menu: Dev Mode \(Self.devMode ? "on" : "off")")
-        controller?.use(Self.devMode ? .starter() : .saved(at: options.storePath))
-    }
-
     @objc private func openAccessibility() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         if !AXIsProcessTrustedWithOptions(options),
@@ -512,7 +494,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         hapticsItem?.isHidden = !MouseHaptics.supported
         hapticsItem?.state = MouseHaptics.enabled ? .on : .off
-        devModeItem?.state = Self.devMode ? .on : .off
         updateButtonState()
     }
 
@@ -549,8 +530,8 @@ struct LaunchOptions {
     var accent: String?
     /// Starts the demo with only this many items on the wheel, to see small rings.
     var demoRootCount: Int?
-    /// Plays the demo on Dev Mode's starter layout.
-    var demoStarter = false
+    /// Plays the demo on the first-launch wheel instead of the demo's own.
+    var demoDefaults = false
     /// Keeps the wheel in this file instead of Application Support, for testing.
     var storePath: String?
     /// False leaves the mouse alone, for testing.
@@ -584,7 +565,7 @@ struct LaunchOptions {
             case "--reduce-motion": reduceMotion = true
             case "--accent": accent = next; i += 1
             case "--demo-root-count": demoRootCount = next.flatMap(Int.init); i += 1
-            case "--demo-starter": demoStarter = true
+            case "--demo-defaults": demoDefaults = true
             case "--store": storePath = next; i += 1
             case "--no-mouse", "--no-thumb": readsMouse = false
             case "--demo-marks": listDemoMarks = true
