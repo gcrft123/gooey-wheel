@@ -56,9 +56,9 @@ extension DemoDriver {
         b.move(0.4) { $0.demoParent() }
         b.wait(0.35)
 
-        // Customize Wheel starts configuration. The bubbles jiggle, and one is dragged along
+        // Customize starts configuration. The bubbles jiggle, and one is dragged along
         // the ring.
-        b.move { $0.demoHome("Customize Wheel") }
+        b.move { $0.demoHome("Customize") }
         b.wait(0.4)
         b.fire(.click)
         b.wait(0.8)
@@ -66,8 +66,8 @@ extension DemoDriver {
         b.move { $0.demoHome("Screenshot") }
         b.wait(0.25)
         b.fire(.press)
-        b.move(0.35) { $0.demoBetween("Screenshot", "Customize Wheel", 0.5) }
-        b.move(0.35) { $0.demoBetween("Customize Wheel", "Previous App", 0.35) }
+        b.move(0.35) { $0.demoBetween("Screenshot", "Customize", 0.5) }
+        b.move(0.35) { $0.demoBetween("Customize", "Previous App", 0.35) }
         b.wait(0.4)
         b.fire(.release)
         b.wait(0.65)

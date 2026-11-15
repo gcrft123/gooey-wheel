@@ -457,7 +457,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         _ = add("Open Wheel", #selector(openFromMenu))
         assignItem = add("Assign Button", #selector(assignButton))
-        _ = add("Customize Wheel", #selector(customizeFromMenu))
+        _ = add("Customize", #selector(customizeFromMenu))
         hapticsItem = add("Haptic Feedback", #selector(toggleHaptics))
         accessibilityItem = add("Allow Accessibility for Actions…", #selector(openAccessibility))
         menu.addItem(.separator())
@@ -475,7 +475,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func customizeFromMenu() {
-        TriggerDebug.event("menu: Customize Wheel")
+        TriggerDebug.event("menu: Customize")
         controller?.customize(at: pointerScreenCenter)
     }
 

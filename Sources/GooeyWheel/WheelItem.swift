@@ -127,7 +127,7 @@ extension WheelItem {
     /// The wheel on first launch. The four straight directions hold the actions used most,
     /// two of them where a trackpad gesture already points: up for Mission Control, left for
     /// back to the previous app. Each other bubble is the first of a kind: a picker, a folder
-    /// of windows that preview where they go, a folder of toggles, and Customize Wheel, which
+    /// of windows that preview where they go, a folder of toggles, and Customize, which
     /// teaches right-clicking and is meant to be removed.
     static let defaults: [WheelItem] = [
         .action("desktop.missionControl"),

@@ -50,7 +50,7 @@
 | Shut Down | System | | | Shuts down the Mac |
 | Force Quit | System | | | Opens the Force Quit window |
 | Empty Trash | System | | | Empties the Trash |
-| Customize Wheel | System | | | Enters Configuration Mode for the Gooey Wheel |
+| Customize | System | | | Enters Configuration Mode for the Gooey Wheel |
 | Copy | Editing | | | Sends ⌘C |
 | Cut | Editing | | | Sends ⌘X |
 | Paste | Editing | | | Sends ⌘V |

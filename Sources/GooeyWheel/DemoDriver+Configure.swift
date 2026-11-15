@@ -346,27 +346,27 @@ extension DemoDriver {
         b.move(rest)
         b.wait(0.8)
 
-        // Reorder: Screenshot past Customize Wheel
+        // Reorder: Screenshot past Customize
         b.move { $0.demoHome("Screenshot") }
         b.wait(0.25)
         b.fire(.press)
-        b.move(0.3) { $0.demoBetween("Screenshot", "Customize Wheel", 0.5) }
+        b.move(0.3) { $0.demoBetween("Screenshot", "Customize", 0.5) }
         b.mark("drag-lift")
-        b.move(0.25) { $0.demoBetween("Screenshot", "Customize Wheel", 0.85) }
+        b.move(0.25) { $0.demoBetween("Screenshot", "Customize", 0.85) }
         b.wait(0.3)
         b.mark("drag-over-item")
-        b.move(0.3) { $0.demoBetween("Customize Wheel", "Previous App", 0.4) }
+        b.move(0.3) { $0.demoBetween("Customize", "Previous App", 0.4) }
         b.wait(0.4)
         b.mark("drag-reorder")
         b.fire(.release)
         b.mark("drag-settle", after: 0.12)
         b.wait(0.9)
 
-        // Make a folder: Customize Wheel onto Screenshot. Its edit ring opens.
-        b.move { $0.demoHome("Customize Wheel") }
+        // Make a folder: Customize onto Screenshot. Its edit ring opens.
+        b.move { $0.demoHome("Customize") }
         b.wait(0.25)
         b.fire(.press)
-        b.move(0.45) { $0.demoBetween("Customize Wheel", "Screenshot", 0.8) }
+        b.move(0.45) { $0.demoBetween("Customize", "Screenshot", 0.8) }
         b.wait(0.35)
         b.mark("folder-create")
         b.fire(.release)
