@@ -147,4 +147,34 @@ extension WheelItem {
         ]),
         .action("edit.copy"),
     ]
+
+    /// The layout Dev Mode resets to, meant to replace `defaults`. The four straight directions
+    /// hold the actions used most, two of them where a trackpad gesture already points: up for
+    /// Mission Control, left for back to the previous app. Each other bubble is the first of
+    /// a kind: a picker, a folder of windows that preview where they go, a folder of toggles,
+    /// and Customize Wheel, which teaches right-clicking and is meant to be removed.
+    static let starter: [WheelItem] = [
+        .action("desktop.missionControl"),
+        .action("media.controls"),
+        .action("media.volume"),
+        .folder("Controls", symbol: "switch.2", [
+            .action("media.mute"),
+            .action("system.micMute"),
+            .action("media.output"),
+            .action("system.doNotDisturb"),
+            .action("system.appearance"),
+            .action("system.keepAwake"),
+        ]),
+        .action("system.screenshot"),
+        .action(WheelActions.customize),
+        .action("desktop.switchApps"),
+        .folder("Windows", symbol: "macwindow", [
+            .action("window.move", argument: "leftHalf"),
+            .action("window.move", argument: "rightHalf"),
+            .action("window.move", argument: "maximize"),
+            .action("window.move", argument: "center"),
+            .action("desktop.minimize"),
+            .action("desktop.fullScreen"),
+        ]),
+    ]
 }

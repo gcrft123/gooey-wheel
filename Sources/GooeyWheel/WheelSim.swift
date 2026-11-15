@@ -280,6 +280,12 @@ final class WheelSim {
         default:
             break
         }
+        if item.actionID == WheelActions.customize {
+            b.radius.velocity += 240
+            onHover?()
+            enterConfiguration()
+            return
+        }
         onSelect?(item)
         b.radius.velocity += 240
         closeAfterChoosing(b)

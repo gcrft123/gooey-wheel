@@ -296,6 +296,19 @@ final class WheelController: NSObject {
         sim.enterConfiguration()
     }
 
+    /// A store waiting for the wheel to close before it takes over.
+    private var nextStore: WheelStore?
+
+    /// Shows `store`'s items from now on. An open wheel closes first.
+    func use(_ store: WheelStore) {
+        guard sim.phase != .closed else {
+            sim.store = store
+            return
+        }
+        nextStore = store
+        dismiss()
+    }
+
     func dismiss() {
         TriggerDebug.log("dismiss \(debugState)")
         updateCursor()
@@ -464,6 +477,10 @@ final class WheelController: NSObject {
         panel.allowsKey = false
         layers.reset()
         editors.remove()
+        if let nextStore {
+            sim.store = nextStore
+            self.nextStore = nil
+        }
         guard demo == nil else { return }
         link?.isPaused = true
         panel.orderOut(nil)
