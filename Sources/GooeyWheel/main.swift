@@ -8,13 +8,7 @@ if let iconPath = options.iconPath {
 }
 
 if options.listDemoMarks {
-    let marks: [(String, Double)]
-    switch options.demoScript {
-    case .controls: marks = DemoDriver.controlsScript().marks
-    case .tour: marks = DemoDriver.tourScript().marks
-    default: marks = DemoDriver.configureMarks
-    }
-    for (name, time) in marks { print(name, String(format: "%.2f", time)) }
+    for (name, time) in DemoDriver.steps(of: options.demoScript).marks { print(name, String(format: "%.2f", time)) }
     exit(0)
 }
 

@@ -58,7 +58,7 @@ Defaults can be set for one run through the argument domain, such as `-TriggerDe
 | `--demo-script wheel` | The default script: opening, hovering, folders, and picking |
 | `--demo-script configure` | Configuration: removing, adding, each panel, and dragging, on a larger stage |
 | `--demo-script controls` | A slider's rim, scrolling it, its bar, a toggle, and a picker |
-| `--demo-script tour` | A bit of everything in 23 seconds, starting and ending with the wheel closed. This is the welcome panel's video |
+| `--demo-script tour` | A bit of everything in 24 seconds, starting and ending with the wheel closed: pointing, the Volume slider and its bar, the Media Controls picker, the Controls folder, and configuration, where it reorders two bubbles and makes a folder. This is the welcome panel's video |
 | `--stage dark\|light\|color\|clear` | The backdrop. `clear` has none |
 | `--appearance light\|dark` | Overrides the system appearance |
 | `--accent <hex>` | Replaces the system accent color |
@@ -66,12 +66,11 @@ Defaults can be set for one run through the argument domain, such as `-TriggerDe
 | `--reduce-motion` | Plays the Reduce Motion version |
 | `--demo-exit` | Quits after one pass |
 | `--demo-root-count <n>` | Starts with only the first n items on the wheel |
-| `--demo-defaults` | Uses the first-launch wheel instead of the demo's own |
-| `--demo-marks` | Prints the script's named moments and their times, then quits |
+| `--demo-marks` | Prints the named moments of the script chosen with `--demo-script` and their times, then quits |
 | `--demo-stop-at <time>` | Freezes the script at that time |
 | `--demo-stage-rect` | Prints the stage's rectangle in the form `screencapture -R` takes, then quits |
 
-The demo uses a wheel of its own, which the scripts find their bubbles in by name, and saves nothing. Its app list shows only apps that come with macOS, its shortcut list is made up, and the controls script's states are made up, so it never reads or changes this Mac's settings. Inside the panels, the configure script sends its clicks, drags, and key presses through the demo's own window, so it never moves the real pointer or types on the real keyboard. The demo doesn't take the Esc key.
+Every script plays on the [default wheel](USERS.md#the-default-wheel) and saves nothing. The scripts find their bubbles by name, so a change to `WheelItem.defaults` that renames, removes, or moves a bubble needs the scripts checked again. The demo's app list shows only apps that come with macOS, its shortcut list is made up, and the states its controls show are made up, so it never reads or changes this Mac's settings. The controls script also pretends Previous App can't run, to show a refusal. Inside the panels, the configure script sends its clicks, drags, and key presses through the demo's own window, so it never moves the real pointer or types on the real keyboard. The demo doesn't take the Esc key.
 
 The stage sits in the bottom-right corner of the main display. On a 2560 × 1440 display its rectangle is `1700,780,836,636` for the default script and `1460,600,1076,816` for the configure script. Pass the same `--demo-script` to `--demo-stage-rect` to get the right one. While a demo is playing, this records 11 seconds of it:
 
@@ -81,7 +80,7 @@ screencapture -v -V 11 -R "$("$bin" --demo-stage-rect)" demo.mov
 
 ### Off-screen captures
 
-`--demo-capture <folder>` writes an image of every named moment into the folder and quits. Nothing appears on screen: the demo's window is placed behind the desktop picture, and each image is a capture of that window alone. It works with the screen locked.
+`--demo-capture <folder>` writes an image of every named moment of the script into the folder and quits. Nothing appears on screen: the demo's window is placed behind the desktop picture, and each image is a capture of that window alone. It works with the screen locked.
 
 ```sh
 "$bin" --demo-script configure --demo-capture /tmp/frames
@@ -104,7 +103,7 @@ When a change affects motion, look at the changed stretch frame by frame, not at
 
 ### The welcome video
 
-`scripts/render-welcome-video.sh` rebuilds `assets/welcome.mov`. It captures the tour script off screen on `--stage clear` with `--accent "#FFFFFF"`, so highlights show against the panel's yellow, and encodes it as HEVC with alpha. It needs ffmpeg and takes a few minutes. Run it after changing the tour script or anything the tour shows.
+`scripts/render-welcome-video.sh` rebuilds `assets/welcome.mov`. It captures the tour script off screen on `--stage clear` with `--accent "#FFFFFF"`, so highlights show against the panel's yellow, and encodes it as HEVC with alpha. It needs ffmpeg and takes a few minutes. Run it after changing the tour script, the default wheel, or anything the tour shows. The script crops the capture to a square that holds everything the tour opens; if the tour reaches further, widen the crop.
 
 ## The mouse input log
 

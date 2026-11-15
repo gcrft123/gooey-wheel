@@ -3,20 +3,12 @@ import simd
 
 extension DemoDriver {
     /// The in-item controls: a slider's level read on its rim and changed by scrolling, the
-    /// bar it turns into when pressed, a picker's choices, and a toggle's state.
+    /// bar it turns into when pressed, a toggle's state, and a picker's choices.
     static func controlsScript() -> Script {
         var b = Builder()
         b.wait(0.3)
         b.fire(.open)
         b.wait(0.6)
-        // Into the Media folder
-        b.move { $0.demoHome("Media") }
-        b.wait(0.9)
-        b.mark("folder-open")
-        // A long label takes two lines.
-        b.move { $0.demoHome("Play/Pause") }
-        b.wait(0.5)
-        b.mark("label-wrapped")
         // A slider: its level is on its rim, and scrolling changes it.
         b.move { $0.demoHome("Volume") }
         b.wait(0.5)
@@ -49,10 +41,18 @@ extension DemoDriver {
         b.mark("bar-closing")
         b.wait(0.7)
         b.mark("bar-closed")
+        // Into the Controls folder
+        b.move { $0.demoHome("Controls") }
+        b.wait(0.9)
+        b.mark("folder-open")
         // A toggle shows its state in the hub.
         b.move { $0.demoHome("Mute") }
         b.wait(0.5)
         b.mark("toggle-hover")
+        // A long label takes two lines.
+        b.move { $0.demoHome("Mute Microphone") }
+        b.wait(0.5)
+        b.mark("label-wrapped")
         // A picker opens like a folder, its choice in effect lit.
         b.move { $0.demoHome("Sound Output") }
         b.wait(0.9)
@@ -66,7 +66,7 @@ extension DemoDriver {
         b.wait(0.7)
         b.mark("back-root")
         // An item this Mac can't run shakes its head.
-        b.move { $0.demoHome("Emoji & Symbols") }
+        b.move { $0.demoHome("Previous App") }
         b.wait(0.4)
         b.fire(.click)
         b.mark("refused")

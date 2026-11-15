@@ -16,9 +16,10 @@ rate=30
   --demo-capture "$frames" --demo-capture-frames "0,$end,$rate"
 rm "$(ls -d "$frames"/*.png | tail -1)"
 
-# The tour stays inside this square of the 1520 × 1280 capture, with room for shadows.
+# The tour stays inside this square of the 1520 × 1280 capture, with room for shadows. The
+# Media Controls picker reaches its top edge and the Controls folder its bottom edge.
 ffmpeg -loglevel error -y -framerate $rate -i "$frames/%04d.png" \
-  -vf "crop=900:900:300:295,scale=860:860" \
+  -vf "crop=960:960:264:170,scale=860:860" \
   -c:v hevc_videotoolbox -alpha_quality 0.8 -b:v 2500k -tag:v hvc1 -pix_fmt bgra \
   assets/welcome.mov
 rm -rf "$(dirname "$frames")"

@@ -477,7 +477,7 @@ final class WheelController: NSObject {
         guard let screen = NSScreen.main else { return }
         demo = driver
         sim.controls = demoControls
-        demoControls.refuses = stageScript != .tour
+        demoControls.refuses = stageScript == .controls
         // The stage sits in the bottom-right corner of the screen, out of the way of whoever
         // is using the Mac while a demo runs. The wheel opens at its center.
         let frame = DemoStage.frame(for: stageScript, on: screen)

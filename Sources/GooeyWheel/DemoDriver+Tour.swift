@@ -2,27 +2,22 @@ import Foundation
 import simd
 
 extension DemoDriver {
-    /// A bit of everything, for the welcome panel's video: pointing, a folder, a slider and its
-    /// bar, a picker, rearranging and making a folder in configuration, and picking an item. It starts
-    /// and ends with the wheel closed, so the video loops without a jump.
+    /// A bit of everything on the wheel a new user gets, for the welcome panel's video: pointing,
+    /// a slider and its bar, a picker, a folder, and rearranging and making a folder in
+    /// configuration. It starts and ends with the wheel closed, so the video loops without a jump.
     static func tourScript() -> Script {
         var b = Builder()
         b.wait(0.4)
         b.fire(.open)
         b.wait(0.7)
-        // Pointing: a bubble, then a sweep across the bottom of the ring.
+        // Pointing: a bubble, then a sweep across the ring.
         b.move { $0.demoHome("Mission Control") }
         b.wait(0.45)
-        b.move(0.6) { $0.demoHome("Paste") }
+        b.move(0.6) { $0.demoHome("Screenshot") }
         b.wait(0.35)
-        b.move { $0.demoHub() }
-        b.wait(0.25)
 
-        // A folder, and a slider inside it: scrolled, then pressed into a bar and dragged.
-        b.move { $0.demoHome("Media") }
-        b.wait(0.9)
-        b.mark("folder")
-        b.move { $0.demoHome("Volume") }
+        // A slider: scrolled, then pressed into a bar and dragged.
+        b.move(0.4) { $0.demoHome("Volume") }
         b.wait(0.45)
         for _ in 0..<4 {
             b.fire(.scroll(1))
@@ -32,52 +27,64 @@ extension DemoDriver {
         b.fire(.press)
         b.wait(0.55)
         b.mark("bar")
-        b.move(0.5) { $0.demoBarPoint(0.9) }
+        b.move(0.5) { $0.demoBarPoint(0.2) }
         b.wait(0.25)
-        b.move(0.55) { $0.demoBarPoint(0.25) }
+        b.move(0.55) { $0.demoBarPoint(0.85) }
         b.wait(0.2)
         b.fire(.release)
         b.wait(0.6)
 
-        // A picker opens like a folder.
-        b.move { $0.demoHome("Sound Output") }
-        b.wait(0.9)
+        // A picker opens like a folder. Its choices here act and leave it open.
+        b.move { $0.demoHome("Media Controls") }
+        b.wait(0.8)
         b.mark("picker")
-        b.move { $0.demoHome("AirPods Pro") }
+        b.move { $0.demoHome("Pause") }
+        b.wait(0.4)
+        b.fire(.click)
         b.wait(0.45)
-        b.fire(.escape)
-        b.wait(0.55)
-        b.fire(.escape)
-        b.wait(0.5)
+        b.mark("picker-chosen")
+        // Resting on the ring it came from goes back.
+        b.move(0.4) { $0.demoParent() }
+        b.wait(0.35)
 
-        // Configuration starts with a right-click on the center, where the cursor points at
-        // nothing. The bubbles jiggle, and one is dragged along the ring.
-        b.move(0.45) { $0.demoHub() }
-        b.wait(0.2)
-        b.fire(.secondaryClick)
+        // A folder of toggles, each showing its state.
+        b.move { $0.demoHome("Controls") }
+        b.wait(0.8)
+        b.mark("folder")
+        b.move { $0.demoHome("Do Not Disturb") }
+        b.wait(0.45)
+        b.move(0.4) { $0.demoParent() }
+        b.wait(0.35)
+
+        // Customize Wheel starts configuration. The bubbles jiggle, and one is dragged along
+        // the ring.
+        b.move { $0.demoHome("Customize Wheel") }
+        b.wait(0.4)
+        b.fire(.click)
         b.wait(0.8)
         b.mark("configure")
-        b.move { $0.demoHome("Lock Screen") }
+        b.move { $0.demoHome("Screenshot") }
         b.wait(0.25)
         b.fire(.press)
-        b.move(0.35) { $0.demoBetween("Lock Screen", "Paste", 0.5) }
-        b.move(0.35) { $0.demoBetween("Paste", "Apps", 0.35) }
+        b.move(0.35) { $0.demoBetween("Screenshot", "Customize Wheel", 0.5) }
+        b.move(0.35) { $0.demoBetween("Customize Wheel", "Previous App", 0.35) }
         b.wait(0.4)
         b.fire(.release)
-        b.wait(0.8)
+        b.wait(0.65)
 
         // One bubble dropped onto another makes a folder of the two, and its edit ring opens.
-        b.move { $0.demoHome("Paste") }
+        b.move { $0.demoHome("Volume") }
         b.wait(0.25)
         b.fire(.press)
-        b.move(0.45) { $0.demoBetween("Paste", "Emoji & Symbols", 0.8) }
+        b.move(0.45) { $0.demoBetween("Volume", "Media Controls", 0.8) }
         b.wait(0.35)
         b.mark("folder-made")
         b.fire(.release)
-        b.wait(1.5)
+        b.wait(1.35)
         b.mark("folder-edit")
         b.fire(.escape)
-        b.wait(0.8)
+        b.wait(0.7)
+        // A right-click on the center, where the cursor points at nothing, ends configuration.
         b.move(0.4) { $0.demoHub() }
         b.wait(0.15)
         b.fire(.secondaryClick)

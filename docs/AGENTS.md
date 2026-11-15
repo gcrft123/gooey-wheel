@@ -52,7 +52,7 @@ bin="$(swift build -c release --disable-keychain --show-bin-path)/GooeyWheel"
 - For visual changes, capture from the build after your final edit with `--demo-capture`, look at the images yourself, and fix or report what's wrong.
 - For motion, check the changed stretch frame by frame with `--demo-capture-frames <from>,<to>,<rate>`: at least 4 fps for cursor paths, every frame for transitions under a second. A few sampled stills have missed a visible jump before. Say plainly which parts you only saw as stills.
 - When tiling frames into a contact sheet with ffmpeg over a `color` source, give the color source the same rate as the frames (`r=4`). Otherwise each frame repeats and the sheet covers a fraction of the time.
-- `--welcome-record <folder>` writes the welcome panel frame by frame off screen. After changing the tour script, rerun `scripts/render-welcome-video.sh` to rebuild `assets/welcome.mov`.
+- `--welcome-record <folder>` writes the welcome panel frame by frame off screen. After changing the tour script or `WheelItem.defaults`, rerun `scripts/render-welcome-video.sh` to rebuild `assets/welcome.mov`.
 
 ## Code rules
 

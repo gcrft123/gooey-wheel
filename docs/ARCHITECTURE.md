@@ -48,7 +48,7 @@ An item's icon is saved as a string: an SF Symbol name, `app:` followed by a bun
 
 `WelcomePanel.swift` is the first-launch window: its two pages, the transition between them, and the background, a blurred mesh of color patches with film grain drawn once when the panel opens. `WelcomeGoo.swift` draws the panel's body and corner buttons with the wheel's renderer and springs. The page contents are clipped with a mask computed from the same distance field as the shader, so they follow the buttons' cutouts as they open.
 
-The panel's video, `assets/welcome.mov`, is the tour demo rendered by `scripts/render-welcome-video.sh` (see [TESTING.md](TESTING.md#demos)).
+The panel's video, `assets/welcome.mov`, is the tour demo rendered by `scripts/render-welcome-video.sh` (see [TESTING.md](TESTING.md#demos)). The tour plays on `WheelItem.defaults`, so the video shows the wheel a new user gets.
 
 ## Actions
 
@@ -116,4 +116,4 @@ On Bluetooth, the mouse carries HID++ over two channels: HID reports, which `HID
 
 ## Diagnostics
 
-`TriggerDebug.swift` writes a log of mouse input when the `TriggerDebug` default is on (see [TESTING.md](TESTING.md#the-mouse-input-log)). `Actions/SelfTest.swift` is the self-test runner. `DemoDriver*.swift` are the scripted demos.
+`TriggerDebug.swift` writes a log of mouse input when the `TriggerDebug` default is on (see [TESTING.md](TESTING.md#the-mouse-input-log)). `Actions/SelfTest.swift` is the self-test runner. `DemoDriver*.swift` are the scripted demos, which play on `WheelItem.defaults`.

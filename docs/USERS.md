@@ -8,7 +8,7 @@ It needs macOS 14 or later. It works with any mouse, and reads Logitech mice dir
 
 ## First launch
 
-The first launch shows a welcome panel with two pages. The first plays a video of the wheel and says what the app does. The second asks which mouse button should open the wheel. While it's showing, pressing any button other than the left and right buttons assigns that button. If reading the button needs Accessibility or Input Monitoring, the page offers to open the right setting.
+The first launch shows a welcome panel with two pages. The first plays a video of the [default wheel](#the-default-wheel) in use and says what the app does. The second asks which mouse button should open the wheel. While it's showing, pressing any button other than the left and right buttons assigns that button. If reading the button needs Accessibility or Input Monitoring, the page offers to open the right setting.
 
 The round button in the bottom-left corner goes back, and the one in the bottom-right continues and then finishes. Return presses the right-hand button, and Esc closes the panel. When the panel closes, the wheel opens where it was.
 

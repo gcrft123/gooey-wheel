@@ -153,31 +153,4 @@ extension WheelItem {
             .action("desktop.fullScreen"),
         ]),
     ]
-
-    /// The scripted demo's wheel, which the demo scripts and the welcome video find their
-    /// bubbles in by name.
-    static let demo: [WheelItem] = [
-        .action("system.screenshot"),
-        .action("desktop.missionControl"),
-        .folder("Media", symbol: "music.note", [
-            .action("media.previous"),
-            .action("media.playPause"),
-            .action("media.next"),
-            .action("media.volume"),
-            .action("media.mute"),
-            .action("media.output"),
-        ]),
-        .action("system.emoji"),
-        .action("system.lockScreen"),
-        .action("edit.paste"),
-        .folder("Apps", symbol: "square.grid.2x2", [
-            .action("apps.open", argument: "com.apple.Safari", title: "Safari", symbol: "safari"),
-            .action("apps.open", argument: "com.apple.mail", title: "Mail", symbol: "envelope"),
-            .action("apps.open", argument: "com.apple.Notes", title: "Notes", symbol: "note.text"),
-            .action("apps.open", argument: "com.apple.iCal", title: "Calendar", symbol: "calendar"),
-            .action("apps.open", argument: "com.apple.Terminal", title: "Terminal", symbol: "terminal"),
-            .action("apps.open", argument: "com.apple.finder", title: "Finder", symbol: "folder"),
-        ]),
-        .action("edit.copy"),
-    ]
 }

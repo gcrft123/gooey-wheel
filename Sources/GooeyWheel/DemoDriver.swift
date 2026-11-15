@@ -99,40 +99,53 @@ final class DemoDriver {
     init(script: DemoScript, exitWhenDone: Bool, stopAt: Double?) {
         self.exitWhenDone = exitWhenDone
         self.stopAt = stopAt
-        switch script {
-        case .wheel: self.script = Self.wheelScript()
-        case .configure: self.script = Self.configureScript()
-        case .controls: self.script = Self.controlsScript()
-        case .tour: self.script = Self.tourScript()
-        }
+        self.script = Self.steps(of: script)
         resolved = Array(repeating: nil, count: self.script.path.count)
     }
 
+    static func steps(of script: DemoScript) -> Script {
+        switch script {
+        case .wheel: return wheelScript()
+        case .configure: return configureScript()
+        case .controls: return controlsScript()
+        case .tour: return tourScript()
+        }
+    }
+
     private static func wheelScript() -> Script {
-        let s = 76.4 // ring radius on the diagonal
-        let path: [(Double, V2)] = [
-            (0.0, V2(0, 0)),
-            (0.9, V2(0, 0)),
-            (1.25, V2(s, -s)),          // Mission Control
-            (1.6, V2(s, -s)),
-            (2.3, V2(s, s)),            // sweep past Media to Emoji
-            (2.6, V2(s, s)),
-            (2.95, V2(0, 0)),           // back to the hub
-            (3.2, V2(0, 0)),
-            (3.55, V2(108, 0)),         // rest on Media, which opens
-            (4.3, V2(108, 0)),
-            (4.65, V2(206, -45)),       // Next
-            (4.95, V2(206, -45)),
-            (5.3, V2(139, -103)),       // Play/Pause
-            (5.7, V2(139, -103)),
-            (6.1, V2(10, 0)),           // rest on the parent ring, which returns
-            (6.6, V2(10, 0)),
-            (6.95, V2(108, 0)),         // Media again
-            (7.5, V2(108, 0)),
-            (7.85, V2(139, -103)),      // Play/Pause
-            (9.2, V2(139, -103)),
-        ]
-        return Script(path: path.map { ($0.0, .at($0.1)) }, events: [(0.3, .open), (8.2, .click), (9.0, .finish)], marks: [])
+        var b = Builder()
+        b.wait(0.3)
+        b.fire(.open)
+        b.wait(0.6)
+        b.move { $0.demoHome("Mission Control") }
+        b.wait(0.35)
+        b.mark("hover")
+        // A sweep past Media Controls, which opens only when the cursor rests on it.
+        b.move(0.7) { $0.demoHome("Volume") }
+        b.wait(0.3)
+        b.move { $0.demoHub() }
+        b.wait(0.25)
+        b.move { $0.demoHome("Controls") }
+        b.wait(0.75)
+        b.mark("folder-open")
+        b.move { $0.demoHome("Mute Microphone") }
+        b.wait(0.3)
+        b.move { $0.demoHome("Mute") }
+        b.wait(0.4)
+        b.mark("folder-hover")
+        // Resting on the parent ring returns to it.
+        b.move(0.4) { $0.demoParent(V2(10, 0)) }
+        b.wait(0.5)
+        b.mark("returned")
+        b.move { $0.demoHome("Controls") }
+        b.wait(0.55)
+        b.move { $0.demoHome("Mute") }
+        b.wait(0.35)
+        b.fire(.click)
+        b.mark("picked", after: 0.2)
+        b.wait(0.8)
+        b.fire(.finish)
+        return b.script
     }
 
     /// A run that writes snapshots ends itself once the script has finished.
@@ -281,15 +294,16 @@ extension WheelSim {
 /// changes anything real.
 final class DemoControls: ControlSource {
     private var levels: [String: Double] = ["media.volume": 0.45, "system.brightness": 0.7, "system.keyboardBrightness": 0.3, "mouse.pointerSpeed": 0.5]
-    private var toggles: [String: Bool] = ["system.doNotDisturb": true, "system.appearance": true, "media.mute": false, "system.micMute": false]
+    private var toggles: [String: Bool] = ["system.doNotDisturb": true, "system.appearance": true, "media.mute": false, "system.micMute": false, "system.keepAwake": false]
     private var playing = true
     private var output = "studio"
 
     private func id(_ item: WheelItem) -> String { item.actionID ?? "" }
 
-    /// One item the demo pretends this Mac can't run, to show a refusal. The tour shows none.
-    var refuses = true
-    func isAvailable(_ item: WheelItem) -> Bool { !refuses || id(item) != "system.emoji" }
+    /// One item the demo pretends this Mac can't run, to show a refusal. Only the controls
+    /// script shows one.
+    var refuses = false
+    func isAvailable(_ item: WheelItem) -> Bool { !refuses || id(item) != "desktop.switchApps" }
     func isOn(_ item: WheelItem) -> Bool? { toggles[id(item)] }
 
     func liveSymbol(_ item: WheelItem) -> String? {
@@ -308,6 +322,7 @@ final class DemoControls: ControlSource {
         switch id(item) {
         case "media.controls", "media.playPause": return "Clair de Lune — Debussy"
         case "media.output": return "Studio Display Speakers"
+        case WheelActions.customize: return "Or right-click"
         default: return nil
         }
     }
