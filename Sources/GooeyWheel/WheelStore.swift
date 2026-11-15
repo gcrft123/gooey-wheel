@@ -21,14 +21,14 @@ final class WheelStore {
         return WheelStore(url: supportFolder.appendingPathComponent("wheel.json"))
     }
 
-    /// `items`, never written to disk. Used by the scripted demo.
-    static func temporary(_ items: [WheelItem] = WheelItem.demo, rootCount: Int? = nil) -> WheelStore {
-        let store = WheelStore(url: nil, initial: items)
+    /// The default wheel, never written to disk. Used by the scripted demo.
+    static func temporary(rootCount: Int? = nil) -> WheelStore {
+        let store = WheelStore(url: nil)
         if let rootCount { store.root = Array(store.root.prefix(rootCount)) }
         return store
     }
 
-    private init(url: URL?, initial: [WheelItem] = WheelItem.defaults) {
+    private init(url: URL?) {
         self.url = url
         if let url, let data = try? Data(contentsOf: url),
            let file = try? JSONDecoder().decode(File.self, from: data) {
@@ -36,7 +36,7 @@ final class WheelStore {
             savedColors = file.savedColors ?? []
             if root != file.items { save() }
         } else {
-            root = initial
+            root = WheelItem.defaults
             save()
         }
         if let iconFolder { IconImages.prune(iconFolder, keeping: root) }

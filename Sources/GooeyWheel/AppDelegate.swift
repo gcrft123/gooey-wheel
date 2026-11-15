@@ -85,7 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         AppIndex.systemAppsOnly = options.demo
         let store: WheelStore
         if options.demo {
-            store = .temporary(options.demoDefaults ? WheelItem.defaults : WheelItem.demo, rootCount: options.demoRootCount)
+            store = .temporary(rootCount: options.demoRootCount)
         } else {
             store = .saved(at: options.storePath)
         }
@@ -457,7 +457,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         _ = add("Open Wheel", #selector(openFromMenu))
         assignItem = add("Assign Button", #selector(assignButton))
-        _ = add("Customize Wheel", #selector(customizeFromMenu))
+        _ = add("Customize", #selector(customizeFromMenu))
         hapticsItem = add("Haptic Feedback", #selector(toggleHaptics))
         accessibilityItem = add("Allow Accessibility for Actions…", #selector(openAccessibility))
         menu.addItem(.separator())
@@ -475,7 +475,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func customizeFromMenu() {
-        TriggerDebug.event("menu: Customize Wheel")
+        TriggerDebug.event("menu: Customize")
         controller?.customize(at: pointerScreenCenter)
     }
 
@@ -530,8 +530,6 @@ struct LaunchOptions {
     var accent: String?
     /// Starts the demo with only this many items on the wheel, to see small rings.
     var demoRootCount: Int?
-    /// Plays the demo on the first-launch wheel instead of the demo's own.
-    var demoDefaults = false
     /// Keeps the wheel in this file instead of Application Support, for testing.
     var storePath: String?
     /// False leaves the mouse alone, for testing.
@@ -546,7 +544,7 @@ struct LaunchOptions {
     var showsWelcome = false
     /// Prints the demo stage's rectangle for `screencapture -R` and quits.
     var printStageRect = false
-    /// Prints the configuration script's named moments and quits.
+    /// Prints the demo script's named moments and quits.
     var listDemoMarks = false
 
     init(arguments: [String]) {
@@ -565,7 +563,6 @@ struct LaunchOptions {
             case "--reduce-motion": reduceMotion = true
             case "--accent": accent = next; i += 1
             case "--demo-root-count": demoRootCount = next.flatMap(Int.init); i += 1
-            case "--demo-defaults": demoDefaults = true
             case "--store": storePath = next; i += 1
             case "--no-mouse", "--no-thumb": readsMouse = false
             case "--demo-marks": listDemoMarks = true

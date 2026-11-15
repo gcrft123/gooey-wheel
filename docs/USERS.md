@@ -8,7 +8,7 @@ It needs macOS 14 or later. It works with any mouse, and reads Logitech mice dir
 
 ## First launch
 
-The first launch shows a welcome panel with two pages. The first plays a video of the wheel and says what the app does. The second asks which mouse button should open the wheel. While it's showing, pressing any button other than the left and right buttons assigns that button. If reading the button needs Accessibility or Input Monitoring, the page offers to open the right setting.
+The first launch shows a welcome panel with two pages. The first plays a video of the [default wheel](#the-default-wheel) in use and says what the app does. The second asks which mouse button should open the wheel. While it's showing, pressing any button other than the left and right buttons assigns that button. If reading the button needs Accessibility or Input Monitoring, the page offers to open the right setting.
 
 The round button in the bottom-left corner goes back, and the one in the bottom-right continues and then finishes. Return presses the right-hand button, and Esc closes the panel. When the panel closes, the wheel opens where it was.
 
@@ -16,7 +16,7 @@ Later launches open the wheel straight away. Launching with `--welcome`, or dele
 
 ## The default wheel
 
-A new wheel has the most-used actions in the four straight directions: Mission Control up, Volume right, Screenshot down, and Previous App left. Up and left match the trackpad's swipe up for Mission Control and the usual left for back. Each diagonal introduces one kind of bubble: Media Controls (a picker), a Controls folder of toggles and Sound Output, a Windows folder of Move Window layouts, and Customize Wheel. Customize Wheel's hub reads "Or right-click" to teach the shortcut.
+A new wheel has the most-used actions in the four straight directions: Mission Control up, Volume right, Screenshot down, and Previous App left. Up and left match the trackpad's swipe up for Mission Control and the usual left for back. Each diagonal introduces one kind of bubble: Media Controls (a picker), a Controls folder of toggles and Sound Output, a Windows folder of Move Window layouts, and Customize. Customize's hub reads "Or right-click" to teach the shortcut.
 
 ## The menu bar item
 
@@ -24,7 +24,7 @@ A new wheel has the most-used actions in the four straight directions: Mission C
 | --- | --- |
 | Open Wheel | Opens the wheel |
 | Assign Button | Shows the button that opens the wheel. Choosing it waits up to 15 seconds and assigns the next button pressed, other than the left and right buttons |
-| Customize Wheel | Opens the wheel in configuration |
+| Customize | Opens the wheel in configuration |
 | Haptic Feedback | Turns the wheel's taps through the mouse on or off. Shown only while a mouse with a supported haptic motor is connected |
 | Check for Updates… | Checks for a new version (see [Updates](#updates)) |
 | Quit Gooey Wheel | Quits |
@@ -78,7 +78,7 @@ Free Spin, Mouse Haptics, and Easy-Switch work on Logitech mice with those featu
 
 ## Customizing the wheel
 
-Right-clicking a bubble or the center, or choosing Customize Wheel in the menu bar item, puts the wheel in configuration. The bubbles jiggle, the wheel stays open, and the cursor has to be on a bubble to act on it. Each change is saved as it's made.
+Right-clicking a bubble or the center, or choosing Customize in the menu bar item, puts the wheel in configuration. The bubbles jiggle, the wheel stays open, and the cursor has to be on a bubble to act on it. Each change is saved as it's made.
 
 | Input | Result |
 | --- | --- |

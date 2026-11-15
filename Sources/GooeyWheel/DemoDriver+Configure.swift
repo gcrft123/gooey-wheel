@@ -85,9 +85,6 @@ extension DemoDriver {
         }
     }
 
-    /// The moments of the configuration script worth a still, with their script times.
-    static var configureMarks: [(String, Double)] { configureScript().marks }
-
     static func configureScript() -> Script {
         var b = Builder()
         let rest = V2(34, 46)
@@ -95,7 +92,7 @@ extension DemoDriver {
         b.fire(.open)
         b.wait(0.7)
         // Normal use first: pointing from just outside the hub, then from the bubble itself.
-        b.move(V2(23, -23))
+        b.move(V2(0, -32))
         b.wait(0.5)
         b.mark("normal-near")
         b.move { $0.demoHome("Mission Control") }
@@ -349,27 +346,27 @@ extension DemoDriver {
         b.move(rest)
         b.wait(0.8)
 
-        // Reorder: Emoji past Lock Screen
-        b.move { $0.demoHome("Emoji") }
+        // Reorder: Screenshot past Customize
+        b.move { $0.demoHome("Screenshot") }
         b.wait(0.25)
         b.fire(.press)
-        b.move(0.3) { $0.demoBetween("Emoji", "Lock Screen", 0.5) }
+        b.move(0.3) { $0.demoBetween("Screenshot", "Customize", 0.5) }
         b.mark("drag-lift")
-        b.move(0.25) { $0.demoBetween("Emoji", "Lock Screen", 0.85) }
+        b.move(0.25) { $0.demoBetween("Screenshot", "Customize", 0.85) }
         b.wait(0.3)
         b.mark("drag-over-item")
-        b.move(0.3) { $0.demoBetween("Lock Screen", "Paste", 0.4) }
+        b.move(0.3) { $0.demoBetween("Customize", "Previous App", 0.4) }
         b.wait(0.4)
         b.mark("drag-reorder")
         b.fire(.release)
         b.mark("drag-settle", after: 0.12)
         b.wait(0.9)
 
-        // Make a folder: Lock Screen onto Emoji. Its edit ring opens.
-        b.move { $0.demoHome("Lock Screen") }
+        // Make a folder: Customize onto Screenshot. Its edit ring opens.
+        b.move { $0.demoHome("Customize") }
         b.wait(0.25)
         b.fire(.press)
-        b.move(0.45) { $0.demoBetween("Lock Screen", "Emoji", 0.8) }
+        b.move(0.45) { $0.demoBetween("Customize", "Screenshot", 0.8) }
         b.wait(0.35)
         b.mark("folder-create")
         b.fire(.release)
@@ -382,23 +379,23 @@ extension DemoDriver {
         b.fire(.escape)
         b.wait(0.9)
 
-        // Onto a folder: Paste into the new one
-        b.move { $0.demoHome("Paste") }
+        // Onto a folder: Previous App into the new one
+        b.move { $0.demoHome("Previous App") }
         b.wait(0.25)
         b.fire(.press)
-        b.move(0.4) { $0.demoBetween("Paste", "Folder", 0.78) }
+        b.move(0.4) { $0.demoBetween("Previous App", "Folder", 0.78) }
         b.wait(0.35)
         b.mark("drag-onto-folder")
         b.fire(.release)
         b.mark("drag-absorb", after: 0.1)
         b.wait(1.0)
 
-        // Open Media by clicking, then edit an item inside it
-        b.click { $0.demoHome("Media") }
+        // Open Controls by clicking, then edit an item inside it
+        b.click { $0.demoHome("Controls") }
         b.move { $0.demoClear() }
         b.wait(0.9)
         b.mark("folder-open")
-        b.click { $0.demoHome("Next") }
+        b.click { $0.demoHome("Mute") }
         b.wait(1.1)
         b.mark("edit-in-folder")
         b.move { $0.demoHome("Color") }
@@ -407,8 +404,8 @@ extension DemoDriver {
         b.fire(.escape)
         b.wait(0.9)
 
-        // Drag Play/Pause out through the parent ring
-        b.move { $0.demoHome("Play/Pause") }
+        // Drag Mute Microphone out through the parent ring
+        b.move { $0.demoHome("Mute Microphone") }
         b.wait(0.25)
         b.fire(.press)
         b.move(0.4) { $0.demoParent(V2(40, -40)) }

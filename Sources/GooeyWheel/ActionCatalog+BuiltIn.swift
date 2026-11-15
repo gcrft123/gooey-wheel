@@ -211,9 +211,9 @@ extension ActionCatalog {
             ActionDefinition(id: "system.emptyTrash", title: "Empty Trash", symbol: "trash.fill", keywords: ["bin", "delete"]),
             ActionDefinition(
                 id: WheelActions.customize,
-                title: "Customize Wheel",
+                title: "Customize",
                 symbol: "slider.horizontal.3",
-                keywords: ["edit", "configure", "rearrange", "settings", "gooey"]
+                keywords: ["edit", "configure", "rearrange", "settings", "gooey", "customize wheel"]
             ),
         ]),
         ActionCategory(id: "edit", title: "Editing", symbol: "doc.on.doc", actions: [

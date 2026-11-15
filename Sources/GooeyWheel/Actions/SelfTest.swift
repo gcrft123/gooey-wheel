@@ -258,7 +258,7 @@ enum SelfTest {
                 try ctx.expect(migrated.title == "Left Half", "title \(migrated.title)")
                 let gone = ActionMigration.migrate(WheelItem.action("navigation.scrollUp"))
                 try ctx.expect(gone.actionID == nil && gone.title == "Scroll Up", "retired action keeps its name, got \(gone.title)")
-                for item in (WheelItem.defaults + WheelItem.demo).flatMap({ [$0] + ($0.children ?? []) }) {
+                for item in WheelItem.defaults.flatMap({ [$0] + ($0.children ?? []) }) {
                     if let id = item.actionID { try ctx.expect(ActionCatalog.action(id) != nil, "layout uses unknown \(id)") }
                 }
             },
