@@ -277,6 +277,13 @@ extension WindowActions {
                     frontmost: NSWorkspace.shared.frontmostApplication?.processIdentifier, running: AppSwitching.runningApps, exclude: getpid()
                 )
                 ctx.note("would switch to \(live.flatMap { NSRunningApplication(processIdentifier: $0)?.localizedName } ?? "nothing")")
+                // The bubble shows that app's icon and the hub its name.
+                let behavior = ActionBehaviors.behavior(for: "desktop.switchApps")
+                let target = live.flatMap(NSRunningApplication.init(processIdentifier:))
+                let symbol = behavior?.liveSymbol?(.current)
+                try ctx.expect(symbol == target?.bundleIdentifier.map { ItemIcon.app($0).name }, "icon \(symbol ?? "nil")")
+                try ctx.expect(behavior?.liveDetail?(.current) == target?.localizedName, "hub detail")
+                if let symbol { try ctx.expect(ItemIcon.picture(symbol) != nil, "no picture for \(symbol)") }
                 // The history follows NSWorkspace's activations, here posted only within this process.
                 guard let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first else { return }
                 let center = NSWorkspace.shared.notificationCenter
