@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: &docs
+      - "**.md"
+      - "docs/**"
+      - LICENSE
+      - .github/workflows/lint.yml
+      - .github/workflows/pr-title.yml
+  pull_request:
+    paths-ignore: *docs
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # build-app.sh takes the build number from the commit count and the version from the newest tag.
+          fetch-depth: 0
+
+      - name: Show the toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      # Only the Sparkle download is cached. A release build optimizes the whole module at once,
+      # so a cached build folder wouldn't save compile time.
+      - name: Cache the Sparkle download
+        uses: actions/cache@v6
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm/artifacts
+          key: swiftpm-artifacts-${{ hashFiles('Package.swift') }}
+
+      - name: Build
+        run: |
+          swift build -c release --disable-keychain
+          echo "bin=$(swift build -c release --disable-keychain --show-bin-path)/GooeyWheel" >> "$GITHUB_ENV"
+
+      - name: Self-test
+        timeout-minutes: 5
+        run: '"$bin" --self-test'
+
+      - name: Build the app
+        timeout-minutes: 5
+        run: ./scripts/build-app.sh
+
+      - name: Check the app bundle
+        run: |
+          app="build/Gooey Wheel.app"
+          plutil -lint "$app/Contents/Info.plist"
+          for file in MacOS/GooeyWheel Frameworks/libGooeyNowPlaying.dylib Frameworks/Sparkle.framework \
+            "Resources/Sparkle LICENSE.txt" Resources/welcome.mov Resources/AppIcon.icns; do
+            [[ -e "$app/Contents/$file" ]] || { echo "::error::The app has no Contents/$file"; exit 1; }
+          done
+          codesign --verify --deep --strict --verbose=2 "$app"
+          ditto -c -k --keepParent "$app" build/Gooey-Wheel.zip
+
+      - name: Render off screen
+        timeout-minutes: 5
+        run: |
+          "$bin" --demo-script tour --demo-capture build/renders/tour --no-mouse
+          "$bin" --welcome-preview build/renders/welcome
+          expected=$("$bin" --demo-script tour --demo-marks | wc -l | tr -d ' ')
+          written=$(find build/renders/tour -name '*.png' | wc -l | tr -d ' ')
+          (( written == expected )) || { echo "::error::The tour capture wrote $written of $expected images"; exit 1; }
+          [[ -n $(find build/renders/welcome -name '*.png') ]] || { echo "::error::The welcome preview wrote no images"; exit 1; }
+
+      - name: Upload the app
+        uses: actions/upload-artifact@v7
+        with:
+          name: Gooey-Wheel-${{ github.sha }}
+          path: build/Gooey-Wheel.zip
+          retention-days: 14
+
+      - name: Upload the renders
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: renders-${{ github.sha }}
+          path: build/renders
+          if-no-files-found: ignore
+          retention-days: 14

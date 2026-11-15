@@ -1,0 +1,23 @@
+name: PR title
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions: {}
+
+jobs:
+  title:
+    name: Conventional Commits title
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check the title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(feat|fix|docs|refactor|perf|test|build|ci|chore)(\([a-z0-9-]+\))?!?: .*[^.]$'
+          if [[ ! $TITLE =~ $pattern ]]; then
+            echo "::error::\"$TITLE\" isn't a Conventional Commits title. Use type(scope): description, with one of feat, fix, docs, refactor, perf, test, build, ci, or chore, and no trailing period."
+            exit 1
+          fi
