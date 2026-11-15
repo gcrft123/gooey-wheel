@@ -10,22 +10,33 @@ final class WheelStore {
     private var undoStack: [[WheelItem]] = []
     private var redoStack: [[WheelItem]] = []
 
+    private static var supportFolder: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Gooey Wheel", isDirectory: true)
+    }
+
     /// The saved wheel, or the default one on first launch.
     static func saved(at path: String? = nil) -> WheelStore {
         if let path { return WheelStore(url: URL(fileURLWithPath: path)) }
-        let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Gooey Wheel", isDirectory: true)
-        return WheelStore(url: folder.appendingPathComponent("wheel.json"))
+        return WheelStore(url: supportFolder.appendingPathComponent("wheel.json"))
     }
 
-    /// The default wheel, never written to disk. Used by the scripted demo.
-    static func temporary(rootCount: Int? = nil) -> WheelStore {
-        let store = WheelStore(url: nil)
+    /// Dev Mode's wheel: the starter layout, started over each time this is called. It is
+    /// saved in a folder of its own, with its own icons, so the saved wheel is left alone.
+    static func starter() -> WheelStore {
+        let folder = supportFolder.appendingPathComponent("Dev Mode", isDirectory: true)
+        try? FileManager.default.removeItem(at: folder)
+        return WheelStore(url: folder.appendingPathComponent("wheel.json"), initial: WheelItem.starter)
+    }
+
+    /// The default wheel, or `items`, never written to disk. Used by the scripted demo.
+    static func temporary(_ items: [WheelItem] = WheelItem.defaults, rootCount: Int? = nil) -> WheelStore {
+        let store = WheelStore(url: nil, initial: items)
         if let rootCount { store.root = Array(store.root.prefix(rootCount)) }
         return store
     }
 
-    private init(url: URL?) {
+    private init(url: URL?, initial: [WheelItem] = WheelItem.defaults) {
         self.url = url
         if let url, let data = try? Data(contentsOf: url),
            let file = try? JSONDecoder().decode(File.self, from: data) {
@@ -33,7 +44,7 @@ final class WheelStore {
             savedColors = file.savedColors ?? []
             if root != file.items { save() }
         } else {
-            root = WheelItem.defaults
+            root = initial
             save()
         }
         if let iconFolder { IconImages.prune(iconFolder, keeping: root) }

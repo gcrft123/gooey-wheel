@@ -119,6 +119,7 @@ enum ActionBehaviors {
             AppActions.behaviors,
             AutomationActions.behaviors,
             MouseActions.behaviors,
+            WheelActions.behaviors,
         ] {
             map.merge(table) { first, _ in first }
         }

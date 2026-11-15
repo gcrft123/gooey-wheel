@@ -209,6 +209,12 @@ extension ActionCatalog {
             ActionDefinition(id: "system.shutDown", title: "Shut Down", symbol: "power", keywords: ["shutdown", "power off"]),
             ActionDefinition(id: "system.forceQuit", title: "Force Quit", symbol: "xmark.octagon.fill", keywords: ["kill", "frozen"]),
             ActionDefinition(id: "system.emptyTrash", title: "Empty Trash", symbol: "trash.fill", keywords: ["bin", "delete"]),
+            ActionDefinition(
+                id: WheelActions.customize,
+                title: "Customize Wheel",
+                symbol: "slider.horizontal.3",
+                keywords: ["edit", "configure", "rearrange", "settings", "gooey"]
+            ),
         ]),
         ActionCategory(id: "edit", title: "Editing", symbol: "doc.on.doc", actions: [
             ActionDefinition(id: "edit.copy", title: "Copy", symbol: "doc.on.doc"),
