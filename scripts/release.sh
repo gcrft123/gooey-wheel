@@ -69,10 +69,10 @@ elif xcrun notarytool history --keychain-profile $profile >/dev/null 2>&1; then
   ditto -c -k --keepParent "$app" $out/notarize.zip
   result=$(xcrun notarytool submit $out/notarize.zip --keychain-profile $profile --wait --output-format json)
   rm $out/notarize.zip
-  status=$(plutil -extract status raw -o - - <<<"$result")
-  if [[ $status != Accepted ]]; then
+  verdict=$(plutil -extract status raw -o - - <<<"$result")
+  if [[ $verdict != Accepted ]]; then
     id=$(plutil -extract id raw -o - - <<<"$result")
-    fail "Notarization ended as $status. See xcrun notarytool log $id --keychain-profile $profile"
+    fail "Notarization ended as $verdict. See xcrun notarytool log $id --keychain-profile $profile"
   fi
   xcrun stapler staple -q "$app"
 else
