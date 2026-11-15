@@ -9,13 +9,13 @@ Releases are GitHub releases on `gcrft123/gooey-wheel`. The app's updater, Spark
 
 ## What the script does
 
-It checks that the working tree is clean, that `HEAD` is on `origin/main`, and that the version doesn't exist yet. It then builds the app signed with the Developer ID Application certificate and the hardened runtime, notarizes and staples it, and zips it as `Gooey-Wheel-1.2.0.zip`.
+It checks that the working tree is clean, that `HEAD` is on `origin/main`, and that the version doesn't exist yet. It then builds the app signed with the Developer ID Application certificate and the hardened runtime, notarizes and staples it, and zips it as `Gooey-Wheel-1.2.0.zip`. It also copies the zip to `Gooey-Wheel.zip`, so `https://github.com/gcrft123/gooey-wheel/releases/latest/download/Gooey-Wheel.zip`, the README's Download link, always gets the latest release.
 
 Next it downloads the previous release's `appcast.xml` and runs Sparkle's `generate_appcast` to make a new one that lists this version and the two before it. It refuses to continue if the new archive has no EdDSA signature in the appcast, which happens when the signing key doesn't match `SUPublicEDKey` in the app's Info.plist.
 
-Finally it creates release `v1.2.0` as a draft with the zip and the appcast, then publishes it and marks it latest. Creating it as a draft first means the latest release always has an appcast. If a run fails after the draft exists, the next run stops and prints the `gh release delete` command that removes it.
+Finally it creates release `v1.2.0` as a draft with both zips and the appcast, then publishes it and marks it latest. Creating it as a draft first means the latest release always has an appcast. If a run fails after the draft exists, the next run stops and prints the `gh release delete` command that removes it.
 
-`--dry-run` stops before publishing and leaves the files in `build/release/1.2.0/feed`.
+`--dry-run` stops before publishing and leaves the files in `build/release/1.2.0`.
 
 ## Release notes
 

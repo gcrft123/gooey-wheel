@@ -81,6 +81,11 @@ fi
 
 archive=$feed/Gooey-Wheel-$version.zip
 ditto -c -k --sequesterRsrc --keepParent "$app" $archive
+# The same zip under a name that doesn't change, so releases/latest/download/Gooey-Wheel.zip
+# always downloads the latest release. It stays out of the feed folder, or the appcast would
+# list it.
+download=$out/Gooey-Wheel.zip
+cp $archive $download
 # generate_appcast embeds the notes file named like the archive. The title stays out of it.
 tail -n +2 "$notes" | sed '/./,$!d' > $feed/Gooey-Wheel-$version.md
 
@@ -105,12 +110,12 @@ grep -q "Gooey-Wheel-$version.zip\".*sparkle:edSignature=" $feed/appcast.xml ||
 
 if [[ -n $dry_run ]]; then
   echo "Dry run. Would publish $tag ($title) with:"
-  ls -1 $archive $feed/appcast.xml
+  ls -1 $archive $download $feed/appcast.xml
   exit 0
 fi
 
 # Published as a draft first, so the latest release always has its appcast.
 gh release create $tag --repo $repo --target "$(git rev-parse HEAD)" --draft \
-  --title "$title" --notes-file $feed/Gooey-Wheel-$version.md $archive $feed/appcast.xml
+  --title "$title" --notes-file $feed/Gooey-Wheel-$version.md $archive $download $feed/appcast.xml
 gh release edit $tag --repo $repo --draft=false --latest
 gh release view $tag --repo $repo --json url --jq .url
