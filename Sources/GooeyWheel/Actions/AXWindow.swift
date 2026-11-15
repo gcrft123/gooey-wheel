@@ -107,7 +107,6 @@ struct AXWindow {
 
     // MARK: State
 
-    var isMinimized: Bool? { bool(element, kAXMinimizedAttribute) }
     var isFullScreen: Bool? { bool(element, "AXFullScreen") }
 
     func isSettable(_ attribute: String) -> Bool {

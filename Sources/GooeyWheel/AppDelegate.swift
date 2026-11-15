@@ -564,7 +564,7 @@ struct LaunchOptions {
             case "--accent": accent = next; i += 1
             case "--demo-root-count": demoRootCount = next.flatMap(Int.init); i += 1
             case "--store": storePath = next; i += 1
-            case "--no-mouse", "--no-thumb": readsMouse = false
+            case "--no-mouse": readsMouse = false
             case "--demo-marks": listDemoMarks = true
             case "--welcome": showsWelcome = true
             case "--demo-stage-rect": printStageRect = true

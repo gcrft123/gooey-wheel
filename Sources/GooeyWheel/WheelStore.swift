@@ -102,9 +102,6 @@ final class WheelStore {
         redoStack.removeAll()
     }
 
-    var canUndo: Bool { !undoStack.isEmpty }
-    var canRedo: Bool { !redoStack.isEmpty }
-
     @discardableResult
     func undo() -> Bool {
         guard let previous = undoStack.popLast() else { return false }
