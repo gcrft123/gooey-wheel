@@ -147,8 +147,6 @@ struct Blob {
     var cutoutRight: Cutout? = nil
     /// Radius of the bottom corners when it differs from `corner`.
     var cornerBottom: Double? = nil
-    var notchInset: Double = 0
-    var notchGap: Double = 0
 }
 
 enum Palette {

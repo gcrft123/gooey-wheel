@@ -51,7 +51,8 @@ if let index = CommandLine.arguments.firstIndex(of: "--welcome-preview"), index 
     if let appearance = options.appearance {
         app.appearance = NSAppearance(named: appearance == "light" ? .aqua : .darkAqua)
     }
-    WelcomePanel().writePreview(to: CommandLine.arguments[index + 1])
+    let panel = WelcomePanel()
+    panel.writePreview(to: CommandLine.arguments[index + 1])
     exit(0)
 }
 
@@ -62,7 +63,8 @@ if let index = CommandLine.arguments.firstIndex(of: "--welcome-record"), index +
     if let appearance = options.appearance {
         app.appearance = NSAppearance(named: appearance == "light" ? .aqua : .darkAqua)
     }
-    WelcomePanel().writeRecording(to: CommandLine.arguments[index + 1])
+    let panel = WelcomePanel()
+    panel.writeRecording(to: CommandLine.arguments[index + 1])
     exit(0)
 }
 
