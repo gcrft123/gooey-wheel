@@ -60,11 +60,13 @@ It's safe to run while you use your Mac: it doesn't move your pointer, send keys
 
 For changes to how the wheel looks or moves, the demo modes play scripted interactions and can write each frame to disk. [TESTING.md](TESTING.md) covers them, along with the mouse input log for button problems.
 
+CI runs on every pull request. The CI workflow builds the release binary on a macOS 26 runner, runs the full self-test, builds and verifies `Gooey Wheel.app`, and captures the tour script and the welcome panel off screen. The app and the captured images are attached to the run for 14 days. It skips pull requests that only change docs. The Lint workflow checks the workflows with actionlint, the scripts' zsh syntax, and the links between docs. The PR title workflow checks the title against the format in [Pull requests](#pull-requests).
+
 Some things can only be checked by hand: pressing a Logitech mouse's buttons, haptic taps, and the Bolt receiver. Say in your pull request which of these you tried and on what hardware.
 
 ## Pull requests
 
-Branch from `main` and keep each pull request to one change. Titles follow [Conventional Commits](https://www.conventionalcommits.org): a type, an optional scope, and a short lowercase description of the change, such as `feat: read the thumb button through a Logi Bolt receiver` or `fix(panels): stop panels overshooting on close`. The common types are `feat`, `fix`, `docs`, `refactor`, `perf`, `build`, and `chore`.
+Branch from `main` and keep each pull request to one change. Titles follow [Conventional Commits](https://www.conventionalcommits.org): a type, an optional scope, and a short lowercase description of the change, such as `feat: read the thumb button through a Logi Bolt receiver` or `fix(panels): stop panels overshooting on close`. The types are `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `ci`, and `chore`, and the title has no trailing period.
 
 In the description, say what changed and why. If the change is visible, include a screenshot or a short screen recording. A recording is better for anything that moves.
 
