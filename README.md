@@ -7,26 +7,25 @@ ___
 </p>
 
 <p align="center">
-  <a href="https://trytailr.app"><b>Download ↓</b></a>
+  <a href="https://github.com/gcrft123/gooey-wheel/releases/latest"><b>Download ↓</b></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/gcrft123/tailr/releases">Releases</a>
+  <a href="https://github.com/gcrft123/gooey-wheel/releases">Releases</a>
   &nbsp;·&nbsp;
-  <a href="https://www.npmjs.com/package/@gcrft123/tailr">Support Me</a>
+  <a href="https://github.com/gcrft123/gooey-wheel/issues">Issues</a>
 </p>
 
 <div align="center">
 
-[![npm](https://img.shields.io/npm/v/%40gcrft123%2Ftailr)](https://www.npmjs.com/package/@gcrft123/tailr)
-[![CI](https://img.shields.io/github/actions/workflow/status/gcrft123/tailr/ci.yml?branch=main&label=CI)](https://github.com/gcrft123/tailr/actions/workflows/ci.yml)
-[![node](https://img.shields.io/node/v/%40gcrft123%2Ftailr)](https://github.com/gcrft123/tailr#readme)
-[![dependencies](https://img.shields.io/badge/dependencies-0-blue)](https://github.com/gcrft123/tailr/blob/main/package.json)
-[![license](https://img.shields.io/npm/l/%40gcrft123%2Ftailr)](LICENSE)
+[![macOS 14+](https://img.shields.io/badge/macOS-14%2B-000000?logo=apple&logoColor=white)](docs/USERS.md)
+[![Apple silicon](https://img.shields.io/badge/Apple%20silicon-only-555555)](docs/USERS.md)
+[![Swift 5.10](https://img.shields.io/badge/Swift-5.10-F05138?logo=swift&logoColor=white)](Package.swift)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 </div>
 
 # Getting started
 
-<a href="https://trytailr.app"><b>Download</b></a> the latest Gooey Wheel release, and install it onto your Mac (it updates automatically once a GitHub release is published). The onboarding will take you through assigning an activation button, which is always reconfigurable in the menu bar item. Gooey will open the wheel for you for the first time. 
+<a href="https://github.com/gcrft123/gooey-wheel/releases/latest"><b>Download</b></a> the latest Gooey Wheel release, and install it onto your Mac (it updates automatically once a GitHub release is published). The onboarding will take you through assigning an activation button, which is always reconfigurable in the menu bar item. Gooey will open the wheel for you for the first time. 
 
 It can hold up to 8 different actions: click one of them to try out the defaults. To close the wheel, click Esc, the X button in the center, the space outside the wheel, or the activation button. 
 
@@ -40,7 +39,7 @@ A single click of the activation button opens the wheel, and holding it down ope
 
 # Customizing Gooey
 
-Once you've got a feel for the wheel (no rhyme intended), you can right click with it open to enter Configuration Mode (you can also do this through the Menu Bar item). Click the + in the center to add up to 8 actions. It pulls up a panel where you can choose from and customize just under 100 actions. For example, easily split screen apps by selecting "Move Window" and choosing an option. The default wheel makes this easy by putting common window actions into a folder. Check out [this handy dandy document](https://github.com/gcrft123/gooey-wheel/blob/main/docs/ACTIONS.md) to see a list of all the actions and what they do.
+Once you've got a feel for the wheel (no rhyme intended), you can right click with it open to enter Configuration Mode (you can also do this through the Menu Bar item). Click the + in the center to add up to 8 actions. It pulls up a panel where you can choose from and customize just under 100 actions. For example, easily split screen apps by selecting "Move Window" and choosing an option. The default wheel makes this easy by putting common window actions into a folder. Check out [this handy dandy document](docs/ACTIONS.md) to see a list of all the actions and what they do.
 
 ### 
  
@@ -62,5 +61,4 @@ Click any item (or folder's pen icon) in Configuration Mode to customize its act
 
 Gooey is completely free and open source, and you can download it today. You can adjust controls inline, feel haptic feedback, run keyboard shortcuts and shell commands from the wheel, and even more...
 
-Caught a bug? Open an Issue! Wanna fix something or change Gooey for the better? Open a PR! Gooey is open to contributions of any kind. Check out CONTRIBUTING.md for more, or AGENTS.md if you're a clanker.
-<!-- add links to those files -->
+Caught a bug? [Open an Issue](https://github.com/gcrft123/gooey-wheel/issues/new)! Wanna fix something or change Gooey for the better? [Open a PR](https://github.com/gcrft123/gooey-wheel/pulls)! Gooey is open to contributions of any kind. Check out [CONTRIBUTING.md](docs/CONTRIBUTING.md) for more, or [AGENTS.md](docs/AGENTS.md) if you're a clanker.
