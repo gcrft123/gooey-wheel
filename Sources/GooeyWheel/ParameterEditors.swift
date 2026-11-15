@@ -587,6 +587,8 @@ private final class ChoiceEditor: ParameterView, EditorAnimated {
     private var hover = GlidingRect()
     private static let gap: CGFloat = 8
     private static let minTileWidth: CGFloat = 92
+    /// Room between a tile's name and its sides, about the corners' radius.
+    private static let labelInset: CGFloat = 14
 
     init(options: [ActionChoice], value: String?, theme: EditorTheme) {
         self.options = options
@@ -675,7 +677,7 @@ private final class ChoiceEditor: ParameterView, EditorAnimated {
                 .font: NSFont.systemFont(ofSize: 11.5, weight: .medium), .foregroundColor: color, .paragraphStyle: paragraph,
             ])
             // A long name takes a second line rather than being cut short.
-            let labelHeight = ceil(label.boundingRect(with: CGSize(width: frame.width - 8, height: 40), options: [.usesLineFragmentOrigin]).height)
+            let labelHeight = ceil(label.boundingRect(with: CGSize(width: frame.width - 2 * Self.labelInset, height: 40), options: [.usesLineFragmentOrigin]).height)
             let symbolName = option.symbol ?? "circle"
             let config = NSImage.SymbolConfiguration(pointSize: 19, weight: .medium).applying(.init(hierarchicalColor: color))
             let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?.withSymbolConfiguration(config)
@@ -684,7 +686,7 @@ private final class ChoiceEditor: ParameterView, EditorAnimated {
             let top = frame.midY - block / 2
             image?.draw(in: CGRect(x: frame.midX - imageSize.width / 2, y: top, width: imageSize.width, height: imageSize.height),
                         from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-            label.draw(with: CGRect(x: frame.minX + 4, y: top + imageSize.height + 5, width: frame.width - 8, height: labelHeight), options: [.usesLineFragmentOrigin])
+            label.draw(with: CGRect(x: frame.minX + Self.labelInset, y: top + imageSize.height + 5, width: frame.width - 2 * Self.labelInset, height: labelHeight), options: [.usesLineFragmentOrigin])
         }
     }
 }
