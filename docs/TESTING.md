@@ -26,6 +26,20 @@ The `catalog.*` checks run everywhere. They fail if a catalog action has no beha
 
 Each action file adds checks in a `tests` list, gathered in `SelfTest.cases` in `Actions/SelfTest.swift`.
 
+`apps.ejectOneProbe` unmounts the volume mounted at `GOOEY_EJECT_PROBE`, and skips when it isn't set. Eject All Disks would eject the user's disks, so this checks the unmount on a disk image made for it:
+
+```sh
+hdiutil create -size 4m -fs APFS -volname GooeyProbe /tmp/probe.dmg
+hdiutil attach -nobrowse -mountpoint /tmp/probe /tmp/probe.dmg
+GOOEY_EJECT_PROBE=/tmp/probe "$bin" --self-test apps.ejectOneProbe
+```
+
+### The App Store edition
+
+The App Store edition's self-test leaves out the checks for actions it doesn't have and adds checks of the default shortcuts it sends. To run it in the App Sandbox, copy the binary from `GOOEY_APPSTORE=1 swift build -c release --disable-keychain --build-path .build-mas` into an app bundle with its own bundle id, so the app the user runs and its permissions are untouched, and sign it with the App Store entitlements (`app-sandbox`, `device.usb`, `device.bluetooth`, `files.user-selected.read-only`, `files.bookmarks.app-scope`). Then run `<bundle>/Contents/MacOS/GooeyWheel --self-test` and look for sandbox denials with `/usr/bin/log show --last 10m --predicate 'eventMessage CONTAINS "deny" AND eventMessage CONTAINS "GooeyWheel"' --style compact`.
+
+Run from a terminal, the sandboxed binary reports the terminal's Accessibility grant, but the sandbox still refuses it Accessibility on other apps (`deny mach-lookup com.apple.axserver`). Checks on its own windows pass; `window.previewIsQuick` notes "(no window)" for the app in front.
+
 ## Running one action
 
 ```sh
@@ -80,7 +94,7 @@ screencapture -v -V 11 -R "$("$bin" --demo-stage-rect)" demo.mov
 
 ### Off-screen captures
 
-`--demo-capture <folder>` writes an image of every named moment of the script into the folder and quits. Nothing appears on screen: the demo's window is placed behind the desktop picture, and each image is a capture of that window alone. It works with the screen locked.
+`--demo-capture <folder>` writes an image of every named moment of the script into the folder and quits. Nothing appears on screen: the demo's window is placed behind the desktop picture, and each image is a capture of that window alone. It works with the screen locked. The direct download captures with `screencapture`, the App Store edition with ScreenCaptureKit; both need Screen Recording for the app or terminal that runs them.
 
 ```sh
 "$bin" --demo-script configure --demo-capture /tmp/frames
@@ -99,6 +113,8 @@ When a change affects motion, look at the changed stretch frame by frame, not at
 | `--welcome-preview <folder>` | An image of each welcome panel page, without showing the panel |
 | `--welcome-record <folder>` | The whole welcome panel frame by frame, from opening to closing, with a drawn pointer pressing its buttons |
 | `--toast-preview <folder>` | Shows sample messages in the bottom-right corner of the screen and writes images of them |
+
+The App Store edition doesn't have `--welcome-preview`, `--welcome-record` or `--toast-preview`, which run `screencapture`.
 | `--render-icon <path>` | Renders the app icon with the goo shader. `scripts/build-app.sh` runs this for `assets/icon.png` |
 
 ### The welcome video

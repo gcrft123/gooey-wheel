@@ -1,10 +1,5 @@
 import AppKit
 
-/// The window server's number for the window an element stands for. Private to HIServices, and
-/// what Rectangle and other window managers use to tell windows apart.
-@_silgen_name("_AXUIElementGetWindow")
-private func _AXUIElementGetWindow(_ element: AXUIElement, _ id: UnsafeMutablePointer<CGWindowID>) -> AXError
-
 /// A window of some app, read and changed through the Accessibility API as Rectangle does.
 /// Frames are in AppKit screen coordinates; the conversion to the API's top-left origin
 /// happens here.
@@ -32,15 +27,12 @@ struct AXWindow {
     }
 
     /// Identifies the window across reads: the same window read twice gives the same key.
-    var key: Key? {
-        var id = CGWindowID(0)
-        guard _AXUIElementGetWindow(element, &id) == .success, id != 0 else { return nil }
-        return Key(pid: pid, window: id)
-    }
+    /// Accessibility elements for one window compare and hash equal, through CFEqual and CFHash.
+    var key: Key { Key(pid: pid, element: element) }
 
     struct Key: Hashable {
         let pid: pid_t
-        let window: CGWindowID
+        let element: AXUIElement
     }
 
     // MARK: Frame

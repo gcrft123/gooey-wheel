@@ -69,6 +69,14 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$app"
           ditto -c -k --keepParent "$app" build/Gooey-Wheel.zip
 
+      - name: Build the App Store edition
+        timeout-minutes: 10
+        env:
+          GOOEY_APPSTORE: "1"
+        run: |
+          swift build -c release --disable-keychain --build-path .build-mas
+          scripts/check-private-names.sh "$(swift build -c release --disable-keychain --build-path .build-mas --show-bin-path)/GooeyWheel"
+
       - name: Render off screen
         timeout-minutes: 5
         run: |

@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 
 /// Window and app actions: moving, minimizing, full screen and closing the window in front
 /// through the Accessibility API, and switching, hiding and quitting apps.
@@ -53,8 +54,15 @@ enum WindowActions {
                 guard let pid = AppSwitching.appToQuit(frontmost: frontmost(invocation)?.processIdentifier, exclude: getpid()),
                       let app = NSRunningApplication(processIdentifier: pid)
                 else { throw ActionError.failed("No app to quit") }
+                #if APPSTORE
+                // The sandbox refuses a request to quit another app, so the app gets ⌘Q itself.
+                try KeySender.requireTrust()
+                let quit = KeyCombo.character("q", .maskCommand) ?? KeyCombo(kVK_ANSI_Q, .maskCommand)
+                KeySender.whenModifiersReleased { KeySender.post(KeySender.events(for: quit), to: pid) }
+                #else
                 // Asks the app to quit as ⌘Q would, so it can ask to save. Never forced.
                 app.terminate()
+                #endif
             }),
         ]
     }()
@@ -125,8 +133,7 @@ enum WindowActions {
         else { return nil }
         let screens = NSScreen.screens
         guard let index = WindowGeometry.screenIndex(for: frame, among: screens.map(\.frame)) else { return nil }
-        // The window's number is read only when there's a record that could match it.
-        let record = history.keys.contains { $0.pid == window.pid } ? window.key.flatMap { history[$0] } : nil
+        let record = history[window.key]
         return plan(layoutID, window: frame, visible: screens[index].visibleFrame, record: record)?.frame
     }
 
@@ -137,7 +144,7 @@ enum WindowActions {
         }
         if window.isFullScreen == true { throw ActionError.failed("The window is in full screen") }
         let key = window.key
-        let record = key.flatMap { history[$0] }
+        let record = history[key]
         guard let plan = plan(layout, window: frame, visible: visible, record: record) else {
             throw ActionError.failed(layout == "restore" ? "Nothing to restore" : "Unknown layout \(layout)")
         }
@@ -146,7 +153,6 @@ enum WindowActions {
             ? (WindowGeometry.screenIndex(for: plan.frame, among: NSScreen.screens.map(\.frame)).map { NSScreen.screens[$0].visibleFrame } ?? visible)
             : visible
         window.setFrame(plan.frame, within: target)
-        guard let key else { return }
         if layout == "restore" {
             history[key] = nil
         } else {

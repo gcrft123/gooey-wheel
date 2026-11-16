@@ -64,7 +64,7 @@ Actions that can't run show a short message through `Toast.swift`, which draws i
 
 ### Private interfaces
 
-A few actions use private macOS interfaces. Each is loaded at run time, so a missing symbol disables its action instead of crashing the app.
+A few actions use private macOS interfaces. Each is loaded at run time, so a missing symbol disables its action instead of crashing the app. None of them is in the [App Store edition](#the-app-store-edition).
 
 | Action | Interface |
 | --- | --- |
@@ -112,7 +112,32 @@ On Bluetooth, the mouse carries HID++ over two channels: HID reports, which `HID
 
 ## Updates
 
-`Updater.swift` starts Sparkle's updater and owns the Check for Updates menu item, including the "Update Available…" state after a background check. The feed and signing are described in [RELEASING.md](RELEASING.md).
+`Updater.swift` starts Sparkle's updater and owns the Check for Updates menu item, including the "Update Available…" state after a background check. The feed and signing are described in [RELEASING.md](RELEASING.md). The App Store edition has neither, since the App Store installs updates.
+
+## The App Store edition
+
+`GOOEY_APPSTORE=1` builds the Mac App Store edition: `Package.swift` drops Sparkle and defines the Swift condition `APPSTORE`. That edition runs in the App Sandbox and may use public interfaces only. App Review scans the binary for private symbol and framework names, so the code that uses them is compiled out with `#if !APPSTORE` rather than turned off at run time.
+
+`ActionCatalog.leftOut` lists the actions the edition doesn't have, and `ActionCatalog.categories` filters them out, which hides them from the picker and from lookups by id. Their behaviors and checks are compiled out too. `ActionMigration` turns an item that uses one into an item with no action that keeps its name. [ACTIONS.md](ACTIONS.md#app-store-edition) lists what is left out and what works differently.
+
+What the condition compiles out:
+
+| Code | In its place |
+| --- | --- |
+| `SymbolicHotKey.swift`, `SystemShortcut` reading SkyLight's shortcut table | `SystemShortcut` and `Screenshots` post Apple's default key combinations |
+| `CoreDockSendNotification` and Dock hiding's CoreDock calls | `Dock` opens Mission Control.app and Apps.app, or posts ⌃↓ and F11. Dock hiding posts ⌥⌘D and judges the state from `NSScreen.visibleFrame` |
+| `MenuItems.swift` (Accessibility on other apps' menus and the Apple menu's private selectors) | Default shortcuts. `FinderCommand` sends Finder's own shortcuts to Finder's process alone |
+| `DisplayActions.swift`, `NaturalScrolling.swift`, `Appearance`, `FocusState`, `WiFi`, the login framework, `IOPMCopySystemPowerSettings`, `privateFunction` | Nothing: their actions are left out |
+| `NowPlaying.swift` and the perl helper | Media keys only |
+| `ChildProcess.swift` and the actions that run programs | Run Shortcut opens a `shortcuts://` link; the Shortcut field is plain text instead of a list from `shortcuts list` |
+| `terminate()` for Quit App and Quit an App, which the sandbox refuses | Quit App posts ⌘Q to the app's process; Quit an App is left out |
+| The `--toast-preview`, `--welcome-preview` and `--welcome-record` modes, which run `screencapture` | `--demo-capture` captures through ScreenCaptureKit |
+
+Two things work the same way in both editions. `UserHome` expands `~` to the user's home folder from the account record, since `NSHomeDirectory()` names the app's container in the sandbox. Move Window tells windows apart by their Accessibility elements, which compare equal through `CFEqual`.
+
+Open File and Open Folder store an `ItemLocation`: the path, and in the App Store edition a second line holding a security-scoped bookmark in base64. The path editor makes the bookmark when a file is chosen in the Open panel or dropped from Finder, and the action resolves it and starts access before opening. An argument without the second line is read as a path, as before.
+
+`SymbolCatalog.swift` reads the SF Symbols list from `/System/Library/CoreServices/CoreGlyphs.bundle` in both editions. The sandbox allows the read.
 
 ## Diagnostics
 

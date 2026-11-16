@@ -1,5 +1,8 @@
 import AppKit
 
+// Only actions the App Store edition leaves out press menu items, and the Apple menu's identifiers are private selectors.
+#if !APPSTORE
+
 /// Menu items and menu bar extras found through Accessibility, matched by the identifiers
 /// and shortcuts AppKit gives them rather than their titles, which change with the language.
 enum MenuItems {
@@ -159,3 +162,4 @@ enum MenuItems {
         }
     }
 }
+#endif

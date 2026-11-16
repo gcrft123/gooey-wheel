@@ -66,7 +66,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Set while the welcome panel's button page is up, which waits for presses throughout.
     private var welcomeListening = false
     private var welcomeTimer: Timer?
+    #if !APPSTORE
     private var updater: Updater?
+    #endif
 
     init(options: LaunchOptions) {
         self.options = options
@@ -110,12 +112,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         WheelActions.openConfiguration = { [weak self] in self?.customizeFromMenu() }
+        #if !APPSTORE
         updater = Updater.make()
+        #endif
         installStatusItem()
         // Previous App needs the order apps came forward in from the start.
         _ = AppHistory.shared
+        #if !APPSTORE
         // A system shortcut lent out for an action when the app last quit unexpectedly goes back.
         SymbolicHotKey.restoreInterrupted()
+        #endif
         TriggerDebug.wheelState = { [weak controller] in controller?.debugState ?? "" }
         TriggerDebug.start()
         if options.readsMouse { startButton() }
@@ -172,11 +178,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         logitech.onStatus = { [weak self] _ in self?.updateButtonState() }
         logitech.onNeedsRelaunch = {
             guard Bundle.main.bundleURL.pathExtension == "app" else { return }
-            let relaunch = Process()
-            relaunch.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            relaunch.arguments = ["-n", Bundle.main.bundleURL.path]
-            try? relaunch.run()
-            NSApp.terminate(nil)
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.createsNewApplicationInstance = true
+            NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { _, _ in
+                DispatchQueue.main.async { NSApp.terminate(nil) }
+            }
         }
         MouseLink.shared.use(logitech)
         logitech.start()
@@ -461,7 +467,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hapticsItem = add("Haptic Feedback", #selector(toggleHaptics))
         accessibilityItem = add("Allow Accessibility for Actions…", #selector(openAccessibility))
         menu.addItem(.separator())
+        #if !APPSTORE
         if let updater { menu.addItem(updater.menuItem) }
+        #endif
         menu.addItem(NSMenuItem(title: "Quit Gooey Wheel", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         menu.delegate = self
         item.menu = menu

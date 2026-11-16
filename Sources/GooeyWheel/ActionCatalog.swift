@@ -78,7 +78,38 @@ struct ActionCategory {
 }
 
 enum ActionCatalog {
+    #if APPSTORE
+    static let categories: [ActionCategory] = builtIn.map { category in
+        ActionCategory(id: category.id, title: category.title, symbol: category.symbol,
+                       actions: category.actions.filter { leftOut[$0.id] == nil })
+    }
+
+    /// Actions the App Store edition doesn't have, with their names for items that used them.
+    /// Each needs a private interface, another app's preferences, or a program run outside the
+    /// App Sandbox. Shortcuts stands in for shell commands and AppleScript.
+    static let leftOut: [String: String] = [
+        "desktop.stageManager": "Stage Manager",
+        "system.brightness": "Brightness",
+        "system.keyboardBrightness": "Keyboard Brightness",
+        "system.doNotDisturb": "Do Not Disturb",
+        "system.appearance": "Dark Mode",
+        "system.wifi": "Wi-Fi",
+        "system.notificationCenter": "Notification Center",
+        "system.controlCenter": "Control Center",
+        "system.dictation": "Dictation",
+        "system.displaySleep": "Display Off",
+        "system.switchUser": "Switch User",
+        "system.restart": "Restart",
+        "system.shutDown": "Shut Down",
+        "mouse.scrollDirection": "Natural Scrolling",
+        // A sandboxed app's request to quit another app is refused.
+        "apps.quit": "Quit an App",
+        "automation.shell": "Shell Command",
+        "automation.appleScript": "AppleScript",
+    ]
+    #else
     static let categories: [ActionCategory] = builtIn
+    #endif
 
     private static let byID: [String: ActionDefinition] = {
         var map: [String: ActionDefinition] = [:]

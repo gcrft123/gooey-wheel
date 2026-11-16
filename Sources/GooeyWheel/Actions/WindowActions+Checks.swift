@@ -41,7 +41,8 @@ extension WindowActions {
         ctx.wait(0.05)
         let invocation = ActionInvocation(argument: nil, frontmost: .current)
         let window = try AXWindow.focused(of: .current)
-        try ctx.expect(window.key?.window == CGWindowID(probe.windowNumber), "the focused window is the probe")
+        try ctx.expect(window.frame.map { WindowGeometry.same($0, probe.frame) } == true, "the focused window is the probe")
+        try ctx.expect(window.key == (try? AXWindow.focused(of: .current))?.key, "a second read gives the same key")
         try body(probe, invocation, visible)
     }
 
@@ -318,6 +319,17 @@ extension WindowActions {
                     try run("desktop.quitFront", ActionInvocation(argument: nil, frontmost: .current))
                     throw SelfTest.Failure(message: "the wheel was asked to quit itself")
                 } catch ActionError.failed {}
+                #if APPSTORE
+                // Recorded, not sent: ⌘Q goes to the app in front and nowhere else.
+                guard let front = NSWorkspace.shared.frontmostApplication, front != .current else { try ctx.skip("no other app in front") }
+                let tap = EventRecorder()
+                defer { tap.stop() }
+                try run("desktop.quitFront", ActionInvocation(argument: nil, frontmost: front))
+                try ctx.expect(ctx.wait(upTo: 1, until: { !tap.events.isEmpty }), "sent nothing")
+                let q = Int64(KeyCombo.character("q")?.key ?? 12)
+                try ctx.expect(tap.events.contains { $0.type == .keyDown && $0.getIntegerValueField(.keyboardEventKeycode) == q && $0.flags.contains(.maskCommand) }, "no ⌘Q")
+                try ctx.expect(tap.targets.allSatisfy { $0 == front.processIdentifier }, "sent to \(tap.targets), not \(front.localizedName ?? "the app in front")")
+                #endif
             },
         ]
     }

@@ -215,6 +215,7 @@ final class WelcomePanel: NSObject {
         }
     }
 
+    #if !APPSTORE
     /// Writes images of both pages into `folder`, from a window kept behind the desktop picture
     /// so nothing shows on screen, for checking how they look.
     func writePreview(to folder: String) {
@@ -298,6 +299,7 @@ final class WelcomePanel: NSObject {
             process.waitUntilExit()
         }
     }
+    #endif
 
     /// The video of the wheel in use, in the app's resources, or in the source tree when the
     /// app runs straight from the build folder.

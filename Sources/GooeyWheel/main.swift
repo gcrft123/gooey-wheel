@@ -14,6 +14,9 @@ if options.listDemoMarks {
 
 let app = NSApplication.shared
 
+// The modes that capture with screencapture are left out of the App Store edition, which may
+// not run other programs. --demo-capture captures through ScreenCaptureKit there.
+#if !APPSTORE
 // Shows sample toasts in the bottom-right corner of the screen and writes images of them into
 // a folder, for checking how they look.
 if let index = CommandLine.arguments.firstIndex(of: "--toast-preview"), index + 1 < CommandLine.arguments.count,
@@ -67,6 +70,7 @@ if let index = CommandLine.arguments.firstIndex(of: "--welcome-record"), index +
     panel.writeRecording(to: CommandLine.arguments[index + 1])
     exit(0)
 }
+#endif
 
 // Runs one action as the wheel would, then waits a few seconds, for checking an action by hand.
 if let index = CommandLine.arguments.firstIndex(of: "--run-action"), index + 1 < CommandLine.arguments.count {

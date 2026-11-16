@@ -51,7 +51,7 @@ extension DemoDriver {
         b.move { $0.demoHome("Controls") }
         b.wait(0.8)
         b.mark("folder")
-        b.move { $0.demoHome("Do Not Disturb") }
+        b.move { $0.demoHome(DemoDriver.tourToggle) }
         b.wait(0.45)
         b.move(0.4) { $0.demoParent() }
         b.wait(0.35)

@@ -52,6 +52,13 @@ enum DemoStage {
 /// Moves a drawn cursor through a script and clicks, so the motion can be recorded without
 /// touching the real pointer.
 final class DemoDriver {
+    /// The toggle the tour rests on in the Controls folder, one that is on.
+    #if APPSTORE
+    static let tourToggle = "Keep Awake"
+    #else
+    static let tourToggle = "Do Not Disturb"
+    #endif
+
     enum Event {
         case open, click, press, release, secondaryClick, escape, undo, finish
         /// A turn of the scroll wheel, in notches away from the hand.
@@ -294,7 +301,11 @@ extension WheelSim {
 /// changes anything real.
 final class DemoControls: ControlSource {
     private var levels: [String: Double] = ["media.volume": 0.45, "system.brightness": 0.7, "system.keyboardBrightness": 0.3, "mouse.pointerSpeed": 0.5]
+    #if APPSTORE
+    private var toggles: [String: Bool] = ["media.mute": false, "system.micMute": false, "system.keepAwake": true]
+    #else
     private var toggles: [String: Bool] = ["system.doNotDisturb": true, "system.appearance": true, "media.mute": false, "system.micMute": false, "system.keepAwake": false]
+    #endif
     private var playing = true
     private var output = "studio"
 

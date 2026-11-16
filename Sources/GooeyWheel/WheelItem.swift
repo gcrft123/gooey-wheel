@@ -79,13 +79,13 @@ struct WheelItem: Codable, Equatable, Identifiable {
         return action.symbol
     }
 
-    private static func standardized(_ path: String) -> String {
-        ((path as NSString).expandingTildeInPath as NSString).standardizingPath
+    private static func standardized(_ argument: String) -> String {
+        (UserHome.expand(ItemLocation.path(of: argument) ?? argument) as NSString).standardizingPath
     }
 
     /// Folders that Finder shows with an icon of their own.
     private static let folderSymbols: [String: String] = {
-        let home = NSHomeDirectory() as NSString
+        let home = UserHome.path as NSString
         return [
             home.appendingPathComponent("Downloads"): "arrow.down.circle.fill",
             home.appendingPathComponent("Desktop"): "menubar.dock.rectangle",
@@ -133,14 +133,7 @@ extension WheelItem {
         .action("desktop.missionControl"),
         .action("media.controls"),
         .action("media.volume"),
-        .folder("Controls", symbol: "switch.2", [
-            .action("media.mute"),
-            .action("system.micMute"),
-            .action("media.output"),
-            .action("system.doNotDisturb"),
-            .action("system.appearance"),
-            .action("system.keepAwake"),
-        ]),
+        controls,
         .action("system.screenshot"),
         .action(WheelActions.customize),
         .action("desktop.switchApps"),
@@ -153,4 +146,26 @@ extension WheelItem {
             .action("desktop.fullScreen"),
         ]),
     ]
+
+    #if APPSTORE
+    /// Do Not Disturb and Dark Mode need private interfaces, so the App Store edition has the
+    /// sound input and the color picker in their place.
+    private static let controls = WheelItem.folder("Controls", symbol: "switch.2", [
+        .action("media.mute"),
+        .action("system.micMute"),
+        .action("media.output"),
+        .action("media.input"),
+        .action("system.keepAwake"),
+        .action("system.colorPicker"),
+    ])
+    #else
+    private static let controls = WheelItem.folder("Controls", symbol: "switch.2", [
+        .action("media.mute"),
+        .action("system.micMute"),
+        .action("media.output"),
+        .action("system.doNotDisturb"),
+        .action("system.appearance"),
+        .action("system.keepAwake"),
+    ])
+    #endif
 }

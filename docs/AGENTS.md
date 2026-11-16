@@ -8,7 +8,9 @@ Gooey Wheel is a macOS menu bar app, written in Swift with AppKit and Metal, tha
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Modules, data flow, mouse input internals |
 | [ACTIONS.md](ACTIONS.md) | Every action, its category, options, and control |
 | [TESTING.md](TESTING.md) | Self-test, demos, off-screen captures, the mouse input log |
-| [RELEASING.md](RELEASING.md) | The release script, signing, and the update feed |
+| [RELEASING.md](RELEASING.md) | The release script, signing, the update feed, and the App Store build |
+| [APP_STORE.md](APP_STORE.md) | The App Store listing and the notes for App Review |
+| [PRIVACY.md](PRIVACY.md) | The privacy policy the App Store listing links to |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Build setup and pull request conventions |
 
 ## The machine you're running on
@@ -33,7 +35,10 @@ Assume a person is using this Mac while you work, with the mouse the app reads. 
 swift build -c release --disable-keychain
 bin="$(swift build -c release --disable-keychain --show-bin-path)/GooeyWheel"
 ./scripts/build-app.sh   # builds and signs build/Gooey Wheel.app
+./scripts/build-mas.sh --local   # the sandboxed App Store edition, in build/App Store/local
 ```
+
+- The App Store edition (`GOOEY_APPSTORE=1`, the `APPSTORE` condition) compiles out every private interface, Sparkle, and anything the App Sandbox blocks. Code that uses a private interface, spawns a process, or writes another app's preferences goes in `#if !APPSTORE`, or the App Store build stops at its private-name check. Build both editions after changing actions.
 
 - Always pass `--disable-keychain` to SwiftPM. Without it, SwiftPM reads GitHub credentials from the login keychain and waits forever on a permission prompt nobody can see. Downloading the Sparkle binary also needs network access outside the sandbox.
 - Sparkle's `generate_appcast` and `sign_update` hang the same way when they read the EdDSA key. Export the key with `generate_keys --account dev.gooey.wheel -x <path>` to a new path in a `mktemp -d` folder (it refuses to overwrite, so `/dev/stdout` fails), then pass `--ed-key-file`. `scripts/release.sh` already does this.

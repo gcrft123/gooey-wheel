@@ -1,13 +1,67 @@
 import AppKit
-import CoreWLAN
+import Carbon.HIToolbox
 import IOKit.pwr_mgt
+#if !APPSTORE
+import CoreWLAN
 
 /// Opens a private framework and looks up a function in it, or nil when this macOS lacks it.
 func privateFunction<T>(_ framework: String, _ name: String, as type: T.Type) -> T? {
     guard let handle = dlopen(framework, RTLD_LAZY), let symbol = dlsym(handle, name) else { return nil }
     return unsafeBitCast(symbol, to: type)
 }
+#endif
 
+#if APPSTORE
+/// Mission Control, App Exposé, Show Desktop, Apps and Dock hiding. The Dock's own calls are
+/// private, so this opens the apps that ask the Dock for an overview, or posts the default key
+/// combination where the app would need launch arguments, which sandboxed apps can't pass.
+enum Dock {
+    enum Overview {
+        case missionControl, appExpose, desktop, apps
+
+        /// Apps.app replaced Launchpad in macOS 26.
+        var app: String? {
+            switch self {
+            case .missionControl: return "com.apple.exposelauncher"
+            case .apps: return "com.apple.apps.launcher"
+            case .appExpose, .desktop: return nil
+            }
+        }
+
+        var keys: KeyCombo? {
+            switch self {
+            case .appExpose: return KeyCombo(kVK_DownArrow, .maskControl)
+            case .desktop: return KeyCombo(kVK_F11)
+            case .missionControl, .apps: return nil
+            }
+        }
+    }
+
+    static func show(_ overview: Overview) throws {
+        if let app = overview.app {
+            try SystemApps.open(app)
+        } else if let keys = overview.keys {
+            try SystemShortcut.press(keys)
+        }
+    }
+
+    /// Whether the Dock hides, judged from the space it keeps clear: a Dock that hides leaves a
+    /// few points at the screen's edge, one that stays at least the height of its icons. Nil
+    /// when no screen shows the difference, such as with every screen in full screen.
+    static var autoHides: Bool? {
+        var widest: CGFloat = 0
+        for screen in NSScreen.screens {
+            let frame = screen.frame
+            let visible = screen.visibleFrame
+            widest = max(widest, visible.minX - frame.minX, frame.maxX - visible.maxX, visible.minY - frame.minY)
+        }
+        return NSScreen.screens.isEmpty ? nil : widest < 12
+    }
+
+    /// Dock hiding's default shortcut, ⌥⌘D, which turns hiding on or off.
+    static let toggleKeys = KeyCombo(kVK_ANSI_D, [.maskAlternate, .maskCommand])
+}
+#else
 /// Mission Control, App Exposé, Show Desktop, Apps and Dock hiding, all run by the Dock.
 enum Dock {
     private static let applicationServices = "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
@@ -56,6 +110,7 @@ enum Dock {
         setAutoHide(on)
     }
 }
+#endif
 
 /// Apps that come with macOS, opened by bundle identifier.
 enum SystemApps {
@@ -74,6 +129,7 @@ enum SystemApps {
     }
 }
 
+#if !APPSTORE
 /// Light and Dark appearance, set as System Settings sets it.
 enum Appearance {
     private static let skyLight = "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight"
@@ -108,6 +164,8 @@ enum FocusState {
     }
 }
 
+#endif
+
 /// Keeps the display and the Mac awake while the app holds a power assertion.
 enum KeepAwake {
     private static var assertion: IOPMAssertionID = 0
@@ -130,6 +188,55 @@ enum KeepAwake {
     }
 }
 
+#if APPSTORE
+/// Sleep, as the Apple menu does it. Locking and logging out post their default shortcuts.
+enum Session {
+    /// Sleeps now, as `pmset sleepnow` does.
+    static func sleep() throws {
+        let port = IOPMFindPowerManagement(kIOMainPortDefault)
+        guard port != 0 else { throw ActionError.failed("Couldn't reach power management") }
+        defer { IOServiceClose(port) }
+        let result = IOPMSleepSystem(port)
+        guard result == kIOReturnSuccess else { throw ActionError.failed("Sleep was refused (\(result))") }
+    }
+}
+
+/// Screenshots with the system's default shortcuts, so they go where the user's screenshot
+/// settings say, with the thumbnail.
+enum Screenshots {
+    static let shortcuts: [String: KeyCombo] = [
+        "screen": KeyCombo(kVK_ANSI_3, [.maskShift, .maskCommand]),
+        "selection": KeyCombo(kVK_ANSI_4, [.maskShift, .maskCommand]),
+        "selectionClipboard": KeyCombo(kVK_ANSI_4, [.maskControl, .maskShift, .maskCommand]),
+        // ⇧⌘4, then Space turns the crosshair into the window camera.
+        "window": KeyCombo(kVK_ANSI_4, [.maskShift, .maskCommand]),
+    ]
+
+    /// How long the crosshair takes to appear before Space can switch it to windows.
+    static let windowModeDelay: TimeInterval = 0.3
+
+    static func take(_ choice: String) throws {
+        if choice == "toolbar" {
+            try SystemApps.open("com.apple.screenshot.launcher")
+            return
+        }
+        guard let combo = shortcuts[choice] else { throw ActionError.failed("Unknown screenshot \(choice)") }
+        try SystemShortcut.press(combo)
+        if choice == "window" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + windowModeDelay) { try? KeySender.post(KeyCombo(kVK_Space)) }
+        }
+    }
+}
+
+/// Sends a system shortcut's default key combination once no modifier is held, so a key still
+/// held from the wheel's own shortcut doesn't join it.
+enum SystemShortcut {
+    static func press(_ combo: KeyCombo) throws {
+        try KeySender.requireTrust()
+        KeySender.whenModifiersReleased { try? KeySender.post(combo) }
+    }
+}
+#else
 /// The Wi-Fi radio.
 enum WiFi {
     static var interface: CWInterface? { CWWiFiClient.shared().interface() }
@@ -250,6 +357,8 @@ enum SystemShortcut {
     }
 }
 
+#endif
+
 /// The eyedropper, putting the color picked on the clipboard as a hex code.
 enum ColorPicker {
     static func pick(returningTo frontmost: NSRunningApplication?) {
@@ -278,6 +387,16 @@ enum ColorPicker {
     }
 }
 
+#if APPSTORE
+/// Empties the Trash with Finder's own Empty Trash… command, sent to Finder as its shortcut,
+/// ⇧⌘⌫, so Finder asks first as it does from its menu.
+enum Trash {
+    static func empty() throws {
+        try KeySender.requireTrust()
+        try FinderCommand.send(KeyCombo(kVK_Delete, [.maskShift, .maskCommand]))
+    }
+}
+#else
 /// Empties the Trash with Finder's own Empty Trash… command, so Finder asks first as it does
 /// from its menu. When the user has turned that warning off, the app asks instead: an item
 /// chosen by mistake must never delete files without a question.
@@ -321,3 +440,4 @@ enum Trash {
         return alert.runModal() == .alertFirstButtonReturn
     }
 }
+#endif

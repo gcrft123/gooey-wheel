@@ -138,11 +138,16 @@ enum SelfTest {
     }
 
     static var cases: [Case] {
-        catalogTests
+        #if APPSTORE
+        let display: [Case] = []
+        #else
+        let display = DisplayActions.tests
+        #endif
+        return catalogTests
             + EditingActions.tests
             + MediaActions.tests
             + AudioActions.tests
-            + DisplayActions.tests
+            + display
             + WindowActions.tests
             + SystemActions.tests
             + AppActions.tests
@@ -261,6 +266,15 @@ enum SelfTest {
                 for item in WheelItem.defaults.flatMap({ [$0] + ($0.children ?? []) }) {
                     if let id = item.actionID { try ctx.expect(ActionCatalog.action(id) != nil, "layout uses unknown \(id)") }
                 }
+                #if APPSTORE
+                let left = ActionCatalog.categories.flatMap(\.actions).map(\.id).filter { ActionCatalog.leftOut[$0] != nil }
+                try ctx.expect(left.isEmpty, "the catalog still lists \(left)")
+                try ctx.expect(ActionCatalog.leftOut.keys.allSatisfy { ActionBehaviors.behavior(for: $0) == nil }, "a left-out action has a behavior")
+                let dark = ActionMigration.migrate(WheelItem.action("system.appearance"))
+                try ctx.expect(dark.actionID == nil && dark.title == "Dark Mode", "Dark Mode → \(String(describing: dark.actionID)) \(dark.title)")
+                let focus = ActionMigration.migrate(WheelItem.action("system.focus"))
+                try ctx.expect(focus.actionID == nil && focus.title == "Do Not Disturb", "an old id mapped to a left-out one → \(focus.title)")
+                #endif
             },
         ]
     }

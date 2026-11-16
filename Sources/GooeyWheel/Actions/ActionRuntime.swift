@@ -108,19 +108,25 @@ struct ActionBehavior {
 /// Every action's behavior, gathered from the files that implement them.
 enum ActionBehaviors {
     private static let all: [String: ActionBehavior] = {
-        var map: [String: ActionBehavior] = [:]
-        for table in [
+        #if APPSTORE
+        let display: [String: ActionBehavior] = [:]
+        #else
+        let display = DisplayActions.behaviors
+        #endif
+        let tables = [
+            display,
             EditingActions.behaviors,
             MediaActions.behaviors,
             AudioActions.behaviors,
-            DisplayActions.behaviors,
             WindowActions.behaviors,
             SystemActions.behaviors,
             AppActions.behaviors,
             AutomationActions.behaviors,
             MouseActions.behaviors,
             WheelActions.behaviors,
-        ] {
+        ]
+        var map: [String: ActionBehavior] = [:]
+        for table in tables {
             map.merge(table) { first, _ in first }
         }
         return map

@@ -95,6 +95,14 @@ enum ActionMigration {
         } else if droppedArguments.contains(id) {
             item.argument = nil
         }
+        #if APPSTORE
+        // An item from a wheel the other edition saved keeps its place and its name.
+        if let id = item.actionID, let title = ActionCatalog.leftOut[id] {
+            item.actionID = nil
+            item.argument = nil
+            if item.customTitle?.isEmpty ?? true { item.customTitle = title }
+        }
+        #endif
         return item
     }
 }

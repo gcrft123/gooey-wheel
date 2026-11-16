@@ -1,5 +1,8 @@
 import AppKit
 
+// DisplayServices and CoreBrightness are private frameworks, left out of the App Store edition.
+#if !APPSTORE
+
 /// Display and keyboard brightness, through the private frameworks the brightness keys use.
 /// They are looked up when first needed; on a Mac without them the actions are unavailable.
 enum DisplayActions {
@@ -185,3 +188,4 @@ enum KeyboardBrightness {
         }
     }
 }
+#endif

@@ -4,6 +4,23 @@ import Carbon.HIToolbox
 /// Automation actions: key presses and text sent to the app in front, the clipboard, and
 /// shortcuts, shell commands, and AppleScripts run in the background.
 enum AutomationActions {
+    #if APPSTORE
+    static let behaviors: [String: ActionBehavior] = [
+        "automation.keystroke": ActionBehavior { invocation in
+            try KeySender.post(notation: try required(invocation, "No keyboard shortcut is set"))
+        },
+        "automation.typeText": ActionBehavior { invocation in
+            try insert(try required(invocation, "No text is set"))
+        },
+        "automation.copyText": ActionBehavior { invocation in
+            copy(try required(invocation, "No text is set"))
+            ActionFeedback.confirm("Copied to the clipboard", symbol: "doc.on.clipboard")
+        },
+        "automation.shortcut": ActionBehavior { invocation in
+            try runShortcut(try required(invocation, "No shortcut is chosen"))
+        },
+    ]
+    #else
     static let behaviors: [String: ActionBehavior] = [
         "automation.keystroke": ActionBehavior { invocation in
             try KeySender.post(notation: try required(invocation, "No keyboard shortcut is set"))
@@ -26,6 +43,7 @@ enum AutomationActions {
             launch(appleScript(try required(invocation, "No script is set")), "The AppleScript")
         },
     ]
+    #endif
 
     private static func required(_ invocation: ActionInvocation, _ message: String) throws -> String {
         guard let argument = invocation.argument, !argument.isEmpty else { throw ActionError.failed(message) }
@@ -106,6 +124,32 @@ enum AutomationActions {
 
     // MARK: Programs
 
+    #if APPSTORE
+    /// The link that has the Shortcuts app run a shortcut by name.
+    static func shortcutURL(_ name: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = "shortcuts"
+        components.host = "run-shortcut"
+        // URLComponents leaves & and = as they are in a query, which would cut the name short.
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+")
+        components.percentEncodedQueryItems = [URLQueryItem(name: "name", value: name.addingPercentEncoding(withAllowedCharacters: allowed))]
+        return components.url
+    }
+
+    static func runShortcut(_ name: String) throws {
+        guard let url = shortcutURL(name), NSWorkspace.shared.urlForApplication(toOpen: url) != nil else {
+            throw ActionError.unavailable("the Shortcuts app")
+        }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        NSWorkspace.shared.open(url, configuration: configuration) { _, error in
+            guard let error else { return }
+            NSLog("Gooey Wheel: shortcut %@ failed, %@", name, "\(error)")
+            ActionFeedback.failed("“\(name)” didn't work")
+        }
+    }
+    #else
     /// Runs a shortcut from the Shortcuts app by name.
     static func shortcut(_ name: String) -> ChildProcess {
         ChildProcess(executable: "/usr/bin/shortcuts", arguments: ["run", name])
@@ -153,6 +197,7 @@ enum AutomationActions {
             ActionFeedback.failed("\(what) didn't work")
         }
     }
+    #endif
 
     // MARK: Checks
 
@@ -231,12 +276,37 @@ enum AutomationActions {
                 }
             },
             SelfTest.Case("automation.missingArgumentFails") { ctx in
-                for id in ["automation.keystroke", "automation.typeText", "automation.copyText", "automation.shortcut", "automation.shell", "automation.appleScript"] {
+                let ids = ActionCatalog.categories.first { $0.id == "automation" }?.actions.map(\.id) ?? []
+                try ctx.expect(ids.contains("automation.shortcut"), "automation actions \(ids)")
+                for id in ids {
                     var threw = false
                     do { try ActionBehaviors.behavior(for: id)?.run?(.current) } catch { threw = true }
                     try ctx.expect(threw, "\(id) ran with nothing set")
                 }
             },
+        ] + programTests
+    }
+
+    #if APPSTORE
+    private static var programTests: [SelfTest.Case] {
+        [
+            SelfTest.Case("automation.shortcuts") { ctx in
+                // Checked up to opening the link: running a real shortcut would do whatever it does.
+                let url = try unwrap(shortcutURL("Morning Report & Tea?"), "no link")
+                try ctx.expect(url.absoluteString == "shortcuts://run-shortcut?name=Morning%20Report%20%26%20Tea?", "link \(url.absoluteString)")
+                let app = try unwrap(NSWorkspace.shared.urlForApplication(toOpen: url), "nothing opens shortcuts: links")
+                ctx.note(app.lastPathComponent)
+            },
+        ]
+    }
+
+    private static func unwrap<T>(_ value: T?, _ message: String) throws -> T {
+        guard let value else { throw SelfTest.Failure(message: message) }
+        return value
+    }
+    #else
+    private static var programTests: [SelfTest.Case] {
+        [
             SelfTest.Case("automation.shellRunsInLoginShell") { ctx in
                 let process = shell("echo \"$PWD\"; echo out; echo err >&2; exit 3")
                 ctx.note(process.executable)
@@ -301,4 +371,5 @@ enum AutomationActions {
             },
         ]
     }
+    #endif
 }

@@ -1,5 +1,11 @@
 // swift-tools-version: 5.10
+import Foundation
 import PackageDescription
+
+// GOOEY_APPSTORE=1 builds the Mac App Store edition (scripts/build-mas.sh): it leaves out Sparkle,
+// since the App Store installs updates, and sets the APPSTORE condition, which compiles out what the
+// App Sandbox blocks or App Review doesn't allow.
+let appStore = ProcessInfo.processInfo.environment["GOOEY_APPSTORE"] == "1"
 
 let package = Package(
     name: "GooeyWheel",
@@ -12,8 +18,9 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "GooeyWheel",
-            dependencies: ["Sparkle"],
+            dependencies: appStore ? [] : ["Sparkle"],
             path: "Sources/GooeyWheel",
+            swiftSettings: appStore ? [.define("APPSTORE")] : [],
             // Finds Sparkle.framework in the app's Contents/Frameworks, where scripts/build-app.sh
             // copies it, and next to the binary when it runs from the build folder.
             linkerSettings: [.unsafeFlags([
