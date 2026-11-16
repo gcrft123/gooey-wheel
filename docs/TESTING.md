@@ -121,7 +121,7 @@ When a change affects motion, look at the changed stretch frame by frame, not at
 | `--toast-preview <folder>` | Shows sample messages in the bottom-right corner of the screen and writes images of them |
 
 The App Store edition doesn't have `--welcome-preview`, `--welcome-record` or `--toast-preview`, which run `screencapture`.
-| `--render-icon-layers <folder>` | Renders the app icon's two layers, `wheel.png` and `accent.png`, with the goo shader. `scripts/render-icon-layers.sh` runs this for `assets/AppIcon.icon` |
+| `--render-icon-layers <folder>` | Renders the app icon's two layers, `bubbles.png` and `droplet.png`, with the goo shader. `scripts/render-icon-layers.sh` runs this for `assets/AppIcon.icon` |
 
 ### The welcome video
 
