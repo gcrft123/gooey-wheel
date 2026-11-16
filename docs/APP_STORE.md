@@ -27,7 +27,7 @@ The text Gooey Wheel's App Store Connect record uses. Edit it here first, then c
 
 ## Promotional text
 
-Press a mouse button and a ring of actions opens under the cursor. Move toward one and let go. Control media, volume, windows, apps, and shortcuts without reaching for the keyboard.
+Press a mouse button and a ring of actions opens under the cursor. Control media, volume, windows, apps, and shortcuts without reaching for the keyboard.
 
 ## Description
 
