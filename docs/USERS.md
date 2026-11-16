@@ -166,7 +166,7 @@ The app updates itself from GitHub releases through [Sparkle](https://sparkle-pr
 
 The App Store edition runs in the App Sandbox. It leaves out the actions that need private interfaces or other apps' menus, and does some others with Apple's default shortcuts; [ACTIONS.md](ACTIONS.md#app-store-edition) lists them. It has no Check for Updates… item, since the App Store installs updates, and doesn't ask for Full Disk Access or for Automation of Finder.
 
-The window actions send the app in front its own shortcuts, so they act on that app's front window. Move Window needs macOS 15 and offers the layouts the system's tiling has shortcuts for; hovering a layout shows no preview. Empty Trash always asks in the app first.
+The window actions send the app in front its own shortcuts, so they act on that app's front window. Move Window needs macOS 15 and offers Maximize, Center and Restore, through the system's tiling; hovering a layout shows no preview. The default wheel's Windows folder has those three, Minimize, and Full Screen. Empty Trash always asks in the app first.
 
 The welcome page and the menu bar item ask for Accessibility as in the direct download. What the edition asks for is permission to post input, which System Settings lists under Accessibility and which the mouse event tap and every action that sends keys need. The key combination field takes presses before macOS only with Input Monitoring, which the welcome page offers for a Logitech mouse.
 

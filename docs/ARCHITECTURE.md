@@ -137,7 +137,7 @@ What the condition compiles out:
 | `terminate()` for Quit App and Quit an App, which the sandbox refuses | Quit App posts ⌘Q to the app's process; Quit an App is left out |
 | The `--toast-preview`, `--welcome-preview` and `--welcome-record` modes, which run `screencapture` | `--demo-capture` captures through ScreenCaptureKit |
 
-The tiling shortcuts are Globe-Control combinations held in the window server's shortcut table (ids 237 to 243), with the same key and flags as Mission Control's ⌃↑, App Exposé's ⌃↓ and the Spaces shortcuts ⌃← and ⌃→, because arrow keys carry the Globe flag on their own. In the App Store edition `KeySender` presses Globe as a key before a combination that includes it, as the keyboard does, so a tiling shortcut differs from a Spaces one.
+Move Window uses the system's tiling, which macOS 15 put in every app's Window → Move & Resize menu. Fill, Center and Return to Previous Size are key equivalents of that menu, Globe-Control-F, C and R, so `WindowTiling` posts them to the front app's process, whose menu runs the item. The halves are the window server's shortcuts. Their keys and flags are the same as the Spaces shortcuts' Control-← and Control-→, because arrow keys carry the Globe flag on their own, and the window server tells them apart by the keyboard's Globe key, which no posted event carries. Posted to the app instead, they match nothing in its menu, so the App Store edition doesn't offer them.
 
 Two things work the same way in both editions. `UserHome` expands `~` to the user's home folder from the account record, since `NSHomeDirectory()` names the app's container in the sandbox. Move Window, in the direct download, tells windows apart by their Accessibility elements, which compare equal through `CFEqual`.
 

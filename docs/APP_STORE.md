@@ -36,7 +36,7 @@ Gooey Wheel opens a ring of up to eight actions from a mouse button, wherever th
 Each bubble runs an action, chosen from about 80:
 
 • Media: play and pause, skip, volume, mute, sound output and microphone input
-• Windows: tile the front window to a half, fill or center it (macOS 15 or later), minimize, full screen, Mission Control and Spaces
+• Windows: fill, center, or restore the front window (macOS 15 or later), minimize, full screen, Mission Control and Spaces
 • Apps: open an app, file, folder, or website, switch to the previous app, hide apps
 • Editing: copy, paste, undo, find, new tab, and more, sent to the app in front
 • Automation: any keyboard shortcut, typed text, and Shortcuts
@@ -70,7 +70,7 @@ To try it:
 
 Why it asks for each permission:
 
-• Accessibility (posting events). Gooey Wheel turns a mouse button into a launcher for keyboard shortcuts, so it's an input utility: sending keystrokes is how nearly every action works. Choosing Copy sends ⌘C to the frontmost app, Space Left sends ⌃←, and Move Window sends the system's own Window → Move & Resize shortcuts. The app requests this with CGRequestPostEventAccess and sends events with CGEventPost. It also installs an event tap on mouse events that removes the assigned button's clicks from the event stream, so the button opens the wheel instead of acting in the app under the cursor. It doesn't use the AXUIElement API on other apps. Without the permission, the wheel still opens from the menu bar item, and actions that don't send keys (volume, sound output, opening apps, files, and websites) work.
+• Accessibility (posting events). Gooey Wheel turns a mouse button into a launcher for keyboard shortcuts, so it's an input utility: sending keystrokes is how nearly every action works. Choosing Copy sends ⌘C to the frontmost app, Space Left sends ⌃←, and Move Window sends the frontmost app the shortcuts of its own Window → Move & Resize menu, such as Fill. The app requests this with CGRequestPostEventAccess and sends events with CGEventPost. It also installs an event tap on mouse events that removes the assigned button's clicks from the event stream, so the button opens the wheel instead of acting in the app under the cursor. It doesn't use the AXUIElement API on other apps. Without the permission, the wheel still opens from the menu bar item, and actions that don't send keys (volume, sound output, opening apps, files, and websites) work.
 • Input Monitoring. The app opens Logitech mice as HID devices to read buttons that macOS doesn't report as mouse buttons, such as the MX Master's thumb button. The field that records a keyboard shortcut also uses it while focused.
 • USB and Bluetooth entitlements. Logitech mice connect through a USB receiver or Bluetooth. Over Bluetooth the app also reads the mouse's battery level.
 • User-selected files. Open File and Open Folder actions open a file or folder the user picks in an Open panel, kept as an app-scoped bookmark. Custom icons are pictures the user picks.

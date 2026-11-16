@@ -406,7 +406,7 @@ extension ActionCatalog {
 /// The places Move Window puts the front window, as fractions of the screen's visible area.
 enum WindowLayout {
     #if APPSTORE
-    /// Those the system's tiling has a shortcut for.
+    /// Those the system's tiling has a shortcut the app in front matches (see WindowTiling).
     static let choices = all.filter { choice in WindowTiling.keys.contains { $0.layout == choice.id } }
     #else
     static let choices = all

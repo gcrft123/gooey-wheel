@@ -227,9 +227,11 @@ enum WindowActions {
 }
 
 #if APPSTORE
-/// Move Window through the system's tiling, Window → Move & Resize in every app, by its default
-/// shortcuts, which macOS 15 added. They are Globe-Control combinations, and the window server
-/// holds them with its other shortcuts. Layouts without one, such as thirds, aren't offered.
+/// Move Window through the system's tiling, which macOS 15 put in every app's Window → Move &
+/// Resize menu. Fill, Center and Return to Previous Size are key equivalents of that menu, so
+/// their Globe-Control shortcuts go straight to the app in front, which runs the menu item.
+/// The halves aren't offered: their shortcuts are the window server's, which tells them from
+/// Spaces' Control-arrows by the keyboard's own Globe key, and no event an app posts carries it.
 enum WindowTiling {
     static var isSupported: Bool {
         ProcessInfo.processInfo.isOperatingSystemAtLeast(OperatingSystemVersion(majorVersion: 15, minorVersion: 0, patchVersion: 0))
@@ -237,10 +239,6 @@ enum WindowTiling {
 
     /// Fill, Center and Return to Previous Size stand in for Maximize, Center and Restore.
     static let keys: [(layout: String, combo: KeyCombo)] = [
-        ("leftHalf", KeyCombo(kVK_LeftArrow, [.maskControl, .maskSecondaryFn])),
-        ("rightHalf", KeyCombo(kVK_RightArrow, [.maskControl, .maskSecondaryFn])),
-        ("topHalf", KeyCombo(kVK_UpArrow, [.maskControl, .maskSecondaryFn])),
-        ("bottomHalf", KeyCombo(kVK_DownArrow, [.maskControl, .maskSecondaryFn])),
         ("maximize", KeyCombo.character("f", [.maskControl, .maskSecondaryFn]) ?? KeyCombo(kVK_ANSI_F, [.maskControl, .maskSecondaryFn])),
         ("center", KeyCombo.character("c", [.maskControl, .maskSecondaryFn]) ?? KeyCombo(kVK_ANSI_C, [.maskControl, .maskSecondaryFn])),
         ("restore", KeyCombo.character("r", [.maskControl, .maskSecondaryFn]) ?? KeyCombo(kVK_ANSI_R, [.maskControl, .maskSecondaryFn])),
@@ -248,19 +246,21 @@ enum WindowTiling {
 
     static var behavior: ActionBehavior {
         var behavior = ActionBehavior(isAvailable: { isSupported }) { invocation in
-            try move(invocation.argument ?? WindowLayout.choices[0].id)
+            try move(invocation.argument ?? keys[0].layout, in: invocation.frontmost)
         }
         behavior.unavailableMessage = "Move Window needs macOS 15 or later"
         return behavior
     }
 
-    static func move(_ layout: String) throws {
+    static func move(_ layout: String, in app: NSRunningApplication?) throws {
         guard isSupported else { throw ActionError.unavailable("Move Window needs macOS 15 or later") }
-        guard let combo = keys.first(where: { $0.layout == layout })?.combo else { throw ActionError.failed("Unknown layout \(layout)") }
+        guard let combo = keys.first(where: { $0.layout == layout })?.combo else {
+            throw ActionError.unavailable("The App Store version can only fill, center, or restore a window")
+        }
+        guard let app else { throw ActionError.failed("No app is in front") }
         try KeySender.requireTrust()
-        // Control still held from the wheel's own shortcut would be harmless, but Option or
-        // Command would make it another shortcut.
-        KeySender.whenModifiersReleased { try? KeySender.post(combo) }
+        // Option or Command still held from the wheel's shortcut would make it another one.
+        KeySender.whenModifiersReleased { KeySender.post(KeySender.events(for: combo), to: app.processIdentifier) }
     }
 }
 #endif

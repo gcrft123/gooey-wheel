@@ -130,19 +130,9 @@ enum KeySender {
         return source
     }()
 
-    #if APPSTORE
-    /// Globe is pressed as a key too, as the keyboard does. The window server tells the
-    /// window tiling shortcuts, such as Globe-Control-←, from Spaces' Control-← by it: arrow
-    /// keys carry the Globe flag on their own.
-    private static let modifierKeys: [(CGEventFlags, Int)] = [
-        (.maskSecondaryFn, kVK_Function),
-        (.maskControl, kVK_Control), (.maskAlternate, kVK_Option), (.maskShift, kVK_Shift), (.maskCommand, kVK_Command),
-    ]
-    #else
     private static let modifierKeys: [(CGEventFlags, Int)] = [
         (.maskControl, kVK_Control), (.maskAlternate, kVK_Option), (.maskShift, kVK_Shift), (.maskCommand, kVK_Command),
     ]
-    #endif
 
     /// The events for one press of a combination: modifiers down, the key down and up,
     /// modifiers up. Apps that watch modifier keys separately see them as well.

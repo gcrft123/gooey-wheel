@@ -82,8 +82,6 @@ enum ActionMigration {
 
     #if APPSTORE
     private static let nearestTiledLayout: [String: String] = [
-        "leftThird": "leftHalf", "leftTwoThirds": "leftHalf", "topLeft": "leftHalf", "bottomLeft": "leftHalf",
-        "rightThird": "rightHalf", "rightTwoThirds": "rightHalf", "topRight": "rightHalf", "bottomRight": "rightHalf",
         "centerThird": "center", "almostMaximize": "maximize", "maximizeHeight": "maximize",
     ]
     #endif
@@ -104,9 +102,15 @@ enum ActionMigration {
             item.argument = nil
         }
         #if APPSTORE
-        // A layout the system's tiling has no shortcut for becomes the nearest one it has.
-        if item.actionID == "window.move", let argument = item.argument, let nearest = nearestTiledLayout[argument] {
-            item.argument = nearest
+        // A layout close to Fill or Center becomes it. A side or a corner stays, and its bubble
+        // says it isn't available.
+        if item.actionID == "window.move", let argument = item.argument {
+            if let nearest = nearestTiledLayout[argument] {
+                item.argument = nearest
+            } else if !WindowLayout.choices.contains(where: { $0.id == argument }), item.customTitle?.isEmpty ?? true {
+                // Otherwise its title would be the first layout offered.
+                item.customTitle = WindowLayout.all.first { $0.id == argument }?.title
+            }
         }
         // An item from a wheel the other edition saved keeps its place and its name.
         if let id = item.actionID, let title = ActionCatalog.leftOut[id] {

@@ -197,30 +197,27 @@ extension WindowActions {
     private static var editionTests: [SelfTest.Case] {
         [
             SelfTest.Case("window.tilingShortcuts") { ctx in
-                // Recorded, not sent: the halves are the window server's shortcuts, which only
-                // a press through the system reaches.
-                try ctx.expect(WindowLayout.choices.map(\.id) == ["leftHalf", "rightHalf", "topHalf", "bottomHalf", "maximize", "center", "restore"],
+                // Recorded, not sent: they'd act on whatever window is in front.
+                try ctx.expect(WindowLayout.choices.map(\.id) == ["maximize", "center", "restore"],
                                "layouts \(WindowLayout.choices.map(\.id))")
                 let behavior = try ctx.expectValue(ActionBehaviors.behavior(for: "window.move"), "no behavior")
                 try ctx.expect(behavior.isAvailable() == WindowTiling.isSupported, "availability")
                 guard WindowTiling.isSupported else { try ctx.skip("macOS 14 has no tiling shortcuts") }
                 try KeySender.requireTrust()
-                let tap = EventRecorder()
-                defer { tap.stop() }
+                var sent: [(event: CGEvent, pid: pid_t?)] = []
+                KeySender.recorder = { sent.append(($0, $1)) }
+                defer { KeySender.recorder = nil }
+                let front = NSWorkspace.shared.frontmostApplication
                 for (layout, combo) in WindowTiling.keys {
-                    tap.events.removeAll()
-                    try behavior.run?(.current.with(argument: layout))
-                    try ctx.expect(ctx.wait(upTo: 1, until: { !tap.events.isEmpty }), "\(layout) sent nothing")
-                    let codes = tap.events.map { $0.getIntegerValueField(.keyboardEventKeycode) }
-                    let key = tap.events.first { $0.type == .keyDown && $0.getIntegerValueField(.keyboardEventKeycode) == Int64(combo.key) }
+                    sent.removeAll()
+                    try behavior.run?(ActionInvocation(argument: layout, frontmost: front))
+                    try ctx.expect(ctx.wait(upTo: 1, until: { !sent.isEmpty }), "\(layout) sent nothing")
+                    try ctx.expect(sent.allSatisfy { $0.pid == front?.processIdentifier }, "\(layout) went to \(sent.map(\.pid)), not the app in front")
+                    let key = sent.first { $0.event.type == .keyDown && $0.event.getIntegerValueField(.keyboardEventKeycode) == Int64(combo.key) }?.event
                     try ctx.expect(key?.flags.contains([.maskControl, .maskSecondaryFn]) == true, "\(layout) flags \(String(describing: key?.flags))")
                     try ctx.expect(key?.flags.intersection([.maskShift, .maskAlternate, .maskCommand]).isEmpty == true, "\(layout) has other modifiers")
-                    try ctx.expect(codes.first == Int64(kVK_Function), "\(layout) doesn't press Globe first: \(codes)")
                 }
-                // Space Left is Control-← alone, so it doesn't press Globe.
-                tap.events.removeAll()
-                try ActionBehaviors.behavior(for: "desktop.spaceLeft")?.run?(.current)
-                try ctx.expect(!tap.events.contains { $0.getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_Function) }, "Space Left pressed Globe")
+                try ctx.expect((try? WindowTiling.move("leftHalf", in: front)) == nil, "a side layout ran")
             },
             SelfTest.Case("window.tilingMatchesWindowMenu") { ctx in
                 // AppKit puts Fill, Center and Return to Previous Size in every app's Window
