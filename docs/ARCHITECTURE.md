@@ -8,6 +8,8 @@ All app source is in `Sources/GooeyWheel`. `main.swift` handles the command-line
 
 `GooRenderer.swift` draws every shape in a single Metal fragment shader as a signed distance field. The shader's source is a string in that file, compiled when the app starts. Shapes are combined with an exponential smooth minimum, which is what makes bubbles neck, bridge, and pinch apart. Color is blended with the same weights, so the accent tint flows across a bridge. The shadow and rim light come from the same field.
 
+The app icon, `assets/AppIcon.icon`, is an Icon Composer document. `IconRenderer.swift` draws its two layers, the hub with its bubbles and the yellow accent droplet, with the same shader, and Icon Composer adds the glass. `scripts/compile-icon.sh` compiles it with `actool` into `Assets.car`, which macOS 26 draws in Liquid Glass, and an `AppIcon.icns` for macOS 14 and 15.
+
 Icons and labels are Core Animation layers above the goo, drawn by `WheelLayers.swift`. The Metal drawable is presented inside the same `CATransaction` that moves those layers, so the two stay on the same frame.
 
 `WheelController.swift` owns the overlay panel and the display link. The panel never activates the app, so the app in front keeps focus while the wheel is open. Nothing renders while the wheel is closed, and a settled wheel skips frames identical to the last.

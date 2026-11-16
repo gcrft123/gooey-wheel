@@ -528,7 +528,7 @@ struct LaunchOptions {
     var stage: String?
     var timescale = 1.0
     var appearance: String?
-    var iconPath: String?
+    var iconLayersPath: String?
     var demoScript = DemoScript.wheel
     /// Script time at which the demo cursor freezes, for stills of one moment.
     var demoStopAt: Double?
@@ -565,7 +565,7 @@ struct LaunchOptions {
             case "--stage": stage = next ?? "dark"; i += 1
             case "--timescale": timescale = next.flatMap(Double.init) ?? 1; i += 1
             case "--appearance": appearance = next; i += 1
-            case "--render-icon": iconPath = next; i += 1
+            case "--render-icon-layers": iconLayersPath = next; i += 1
             case "--demo-script": demoScript = next.flatMap(DemoScript.init(rawValue:)) ?? .wheel; i += 1
             case "--reduce-motion": reduceMotion = true
             case "--accent": accent = next; i += 1

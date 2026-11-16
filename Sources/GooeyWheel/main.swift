@@ -3,8 +3,8 @@ import AppKit
 
 let options = LaunchOptions(arguments: CommandLine.arguments)
 
-if let iconPath = options.iconPath {
-    exit(IconRenderer.write(to: iconPath) ? 0 : 1)
+if let iconLayersPath = options.iconLayersPath {
+    exit(IconRenderer.writeLayers(to: iconLayersPath) ? 0 : 1)
 }
 
 if options.listDemoMarks {
