@@ -15,6 +15,7 @@ func privateFunction<T>(_ framework: String, _ name: String, as type: T.Type) ->
 /// Mission Control, App Exposé, Show Desktop, Apps and Dock hiding. The Dock's own calls are
 /// private, so this opens the apps that ask the Dock for an overview, or posts the default key
 /// combination where the app would need launch arguments, which sandboxed apps can't pass.
+/// Whether the Dock hides can't be read, so Dock Hiding is a plain action that turns it over.
 enum Dock {
     enum Overview {
         case missionControl, appExpose, desktop, apps
@@ -43,19 +44,6 @@ enum Dock {
         } else if let keys = overview.keys {
             try SystemShortcut.press(keys)
         }
-    }
-
-    /// Whether the Dock hides, judged from the space it keeps clear: a Dock that hides leaves a
-    /// few points at the screen's edge, one that stays at least the height of its icons. Nil
-    /// when no screen shows the difference, such as with every screen in full screen.
-    static var autoHides: Bool? {
-        var widest: CGFloat = 0
-        for screen in NSScreen.screens {
-            let frame = screen.frame
-            let visible = screen.visibleFrame
-            widest = max(widest, visible.minX - frame.minX, frame.maxX - visible.maxX, visible.minY - frame.minY)
-        }
-        return NSScreen.screens.isEmpty ? nil : widest < 12
     }
 
     /// Dock hiding's default shortcut, ⌥⌘D, which turns hiding on or off.
@@ -388,12 +376,28 @@ enum ColorPicker {
 }
 
 #if APPSTORE
-/// Empties the Trash with Finder's own Empty Trash… command, sent to Finder as its shortcut,
-/// ⇧⌘⌫, so Finder asks first as it does from its menu.
+/// Empties the Trash with Finder's Empty Trash command, sent to Finder as its shortcut. Whether
+/// Finder warns first is in its preferences, which the sandbox can't read, so the app always
+/// asks, then sends ⌥⇧⌘⌫, the version that doesn't ask again: an item chosen by mistake must
+/// never delete files without a question.
 enum Trash {
+    static let shortcut = KeyCombo(kVK_Delete, [.maskAlternate, .maskShift, .maskCommand])
+
     static func empty() throws {
         try KeySender.requireTrust()
-        try FinderCommand.send(KeyCombo(kVK_Delete, [.maskShift, .maskCommand]))
+        guard confirm() else { return }
+        try FinderCommand.send(shortcut)
+    }
+
+    private static func confirm() -> Bool {
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = "Empty the Trash?"
+        alert.informativeText = "The items in the Trash will be deleted permanently."
+        alert.addButton(withTitle: "Empty Trash")
+        alert.addButton(withTitle: "Cancel")
+        alert.alertStyle = .warning
+        return alert.runModal() == .alertFirstButtonReturn
     }
 }
 #else

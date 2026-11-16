@@ -10,8 +10,8 @@ Everything the app keeps stays on your Mac: your wheel's layout, the icons you a
 
 | Permission | What the app does with it |
 | --- | --- |
-| Accessibility | Takes over the mouse button you assign so it opens the wheel, sends the keyboard shortcuts your actions choose to the app in front, and moves and resizes windows for the window actions |
-| Input Monitoring | Reads the buttons of a Logitech mouse directly, including buttons macOS doesn't report |
+| Accessibility | Takes over the mouse button you assign so it opens the wheel, and sends the keyboard shortcuts your actions choose to the app in front. The GitHub edition also uses it to move and resize windows |
+| Input Monitoring | Reads the buttons of a Logitech mouse directly, including buttons macOS doesn't report, and records a keyboard shortcut while you set one |
 | Bluetooth | Reads your mouse's battery level, and on a Logitech mouse its buttons and haptics |
 | Files you choose | Opens the files and folders you pick for Open File and Open Folder, and copies pictures you pick into the app as icons |
 

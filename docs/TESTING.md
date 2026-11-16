@@ -36,9 +36,15 @@ GOOEY_EJECT_PROBE=/tmp/probe "$bin" --self-test apps.ejectOneProbe
 
 ### The App Store edition
 
-The App Store edition's self-test leaves out the checks for actions it doesn't have and adds checks of the default shortcuts it sends. To run it in the App Sandbox, copy the binary from `GOOEY_APPSTORE=1 swift build -c release --disable-keychain --build-path .build-mas` into an app bundle with its own bundle id, so the app the user runs and its permissions are untouched, and sign it with the App Store entitlements (`app-sandbox`, `device.usb`, `device.bluetooth`, `files.user-selected.read-only`, `files.bookmarks.app-scope`). Then run `<bundle>/Contents/MacOS/GooeyWheel --self-test` and look for sandbox denials with `/usr/bin/log show --last 10m --predicate 'eventMessage CONTAINS "deny" AND eventMessage CONTAINS "GooeyWheel"' --style compact`.
+The App Store edition's self-test leaves out the checks for actions it doesn't have and adds checks of the shortcuts it sends. Its window checks send Minimize, Full Screen and Close to a panel of its own, and compare the tiling shortcuts with the ones AppKit puts in its Window menu. The halves are the window server's shortcuts, which only a press through the system reaches, so they are recorded rather than sent.
 
-Run from a terminal, the sandboxed binary reports the terminal's Accessibility grant, but the sandbox still refuses it Accessibility on other apps (`deny mach-lookup com.apple.axserver`). Checks on its own windows pass; `window.previewIsQuick` notes "(no window)" for the app in front.
+To run it in the App Sandbox with its own grants, build `scripts/build-mas.sh --local` (bundle id `dev.gooey.wheel.local`) and launch it through `open`, which makes it its own responsible process. Run from a shell, the binary gets the terminal's grants instead.
+
+```sh
+open -n -W --stdout /tmp/out.txt --stderr /tmp/err.txt "build/App Store/local/Gooey Wheel.app" --args --self-test
+```
+
+`open --env NAME=value` passes `GOOEY_EJECT_PROBE` and `GOOEY_APP_PROBE`. `desktop.otherAppHideAndActivate` hides and brings forward the app at `GOOEY_APP_PROBE`, such as a stay-open applet made with `osacompile -s`, then gives the focus back; the sandbox refuses the hiding. Look for sandbox denials with `/usr/bin/log show --last 10m --predicate 'eventMessage CONTAINS "deny" AND eventMessage CONTAINS "GooeyWheel"' --style compact`.
 
 ## Running one action
 

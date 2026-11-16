@@ -1,13 +1,44 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// Window and app actions: moving, minimizing, full screen and closing the window in front
-/// through the Accessibility API, and switching, hiding and quitting apps.
+/// Window and app actions: moving, minimizing, full screen and closing the window in front,
+/// and switching, hiding and quitting apps. The direct download reaches the window through the
+/// Accessibility API; the App Store edition, which the sandbox keeps out of other apps' windows,
+/// sends the system's and the app's shortcuts instead.
 enum WindowActions {
     static let behaviors: [String: ActionBehavior] = {
         // Previous App needs the activation order from as early as possible.
         _ = AppHistory.shared
-        return [
+        var map = shared
+        #if APPSTORE
+        map.merge(byKeys) { $1 }
+        #else
+        map.merge(byAccessibility) { $1 }
+        #endif
+        return map
+    }()
+
+    #if APPSTORE
+    /// Each sent to the app in front as a press of its keys. Minimize, Close and Hide are
+    /// the standard menu shortcuts of Mac apps, and ⌃⌘F is full screen's.
+    private static let byKeys: [String: ActionBehavior] = [
+        "window.move": WindowTiling.behavior,
+        "desktop.minimize": .keys(KeyCombo.character("m", .maskCommand) ?? KeyCombo(kVK_ANSI_M, .maskCommand)),
+        "desktop.fullScreen": .keys(KeyCombo.character("f", [.maskControl, .maskCommand]) ?? KeyCombo(kVK_ANSI_F, [.maskControl, .maskCommand])),
+        "desktop.closeWindow": .keys(KeyCombo.character("w", .maskCommand) ?? KeyCombo(kVK_ANSI_W, .maskCommand)),
+        // The sandbox refuses hiding another app, so the app in front hides itself, or the others.
+        "desktop.hideApp": ActionBehavior(run: { invocation in
+            guard let app = frontmost(invocation) else { throw ActionError.failed("No app is in front") }
+            if app == .current {
+                NSApp.hide(nil)
+            } else {
+                try KeySender.post(KeyCombo.character("h", .maskCommand) ?? KeyCombo(kVK_ANSI_H, .maskCommand))
+            }
+        }),
+        "desktop.hideOthers": .keys(KeyCombo.character("h", [.maskAlternate, .maskCommand]) ?? KeyCombo(kVK_ANSI_H, [.maskAlternate, .maskCommand])),
+    ]
+    #else
+    private static let byAccessibility: [String: ActionBehavior] = [
             "window.move": ActionBehavior(run: { invocation in
                 try move(invocation.argument ?? WindowLayout.choices[0].id, invocation: invocation)
             }),
@@ -29,6 +60,10 @@ enum WindowActions {
             "desktop.nextDisplay": ActionBehavior(isAvailable: { NSScreen.screens.count > 1 }, run: { invocation in
                 try moveToNextDisplay(invocation)
             }),
+    ]
+    #endif
+
+    private static let shared: [String: ActionBehavior] = [
             "desktop.switchApps": previousApp,
             "desktop.hideApp": ActionBehavior(run: { invocation in
                 guard let app = frontmost(invocation) else { throw ActionError.failed("No app is in front") }
@@ -64,8 +99,7 @@ enum WindowActions {
                 app.terminate()
                 #endif
             }),
-        ]
-    }()
+    ]
 
     private static func frontmost(_ invocation: ActionInvocation) -> NSRunningApplication? {
         invocation.frontmost ?? NSWorkspace.shared.frontmostApplication
@@ -97,6 +131,7 @@ enum WindowActions {
         return behavior
     }
 
+    #if !APPSTORE
     // MARK: Moving
 
     /// What Move Window remembers about a window it moved.
@@ -188,4 +223,44 @@ enum WindowActions {
             throw ActionError.failed("The window can't go full screen")
         }
     }
+    #endif
 }
+
+#if APPSTORE
+/// Move Window through the system's tiling, Window → Move & Resize in every app, by its default
+/// shortcuts, which macOS 15 added. They are Globe-Control combinations, and the window server
+/// holds them with its other shortcuts. Layouts without one, such as thirds, aren't offered.
+enum WindowTiling {
+    static var isSupported: Bool {
+        ProcessInfo.processInfo.isOperatingSystemAtLeast(OperatingSystemVersion(majorVersion: 15, minorVersion: 0, patchVersion: 0))
+    }
+
+    /// Fill, Center and Return to Previous Size stand in for Maximize, Center and Restore.
+    static let keys: [(layout: String, combo: KeyCombo)] = [
+        ("leftHalf", KeyCombo(kVK_LeftArrow, [.maskControl, .maskSecondaryFn])),
+        ("rightHalf", KeyCombo(kVK_RightArrow, [.maskControl, .maskSecondaryFn])),
+        ("topHalf", KeyCombo(kVK_UpArrow, [.maskControl, .maskSecondaryFn])),
+        ("bottomHalf", KeyCombo(kVK_DownArrow, [.maskControl, .maskSecondaryFn])),
+        ("maximize", KeyCombo.character("f", [.maskControl, .maskSecondaryFn]) ?? KeyCombo(kVK_ANSI_F, [.maskControl, .maskSecondaryFn])),
+        ("center", KeyCombo.character("c", [.maskControl, .maskSecondaryFn]) ?? KeyCombo(kVK_ANSI_C, [.maskControl, .maskSecondaryFn])),
+        ("restore", KeyCombo.character("r", [.maskControl, .maskSecondaryFn]) ?? KeyCombo(kVK_ANSI_R, [.maskControl, .maskSecondaryFn])),
+    ]
+
+    static var behavior: ActionBehavior {
+        var behavior = ActionBehavior(isAvailable: { isSupported }) { invocation in
+            try move(invocation.argument ?? WindowLayout.choices[0].id)
+        }
+        behavior.unavailableMessage = "Move Window needs macOS 15 or later"
+        return behavior
+    }
+
+    static func move(_ layout: String) throws {
+        guard isSupported else { throw ActionError.unavailable("Move Window needs macOS 15 or later") }
+        guard let combo = keys.first(where: { $0.layout == layout })?.combo else { throw ActionError.failed("Unknown layout \(layout)") }
+        try KeySender.requireTrust()
+        // Control still held from the wheel's own shortcut would be harmless, but Option or
+        // Command would make it another shortcut.
+        KeySender.whenModifiersReleased { try? KeySender.post(combo) }
+    }
+}
+#endif

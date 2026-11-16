@@ -166,6 +166,10 @@ The app updates itself from GitHub releases through [Sparkle](https://sparkle-pr
 
 The App Store edition runs in the App Sandbox. It leaves out the actions that need private interfaces or other apps' menus, and does some others with Apple's default shortcuts; [ACTIONS.md](ACTIONS.md#app-store-edition) lists them. It has no Check for Updates… item, since the App Store installs updates, and doesn't ask for Full Disk Access or for Automation of Finder.
 
+The window actions send the app in front its own shortcuts, so they act on that app's front window. Move Window needs macOS 15 and offers the layouts the system's tiling has shortcuts for; hovering a layout shows no preview. Empty Trash always asks in the app first.
+
+The welcome page and the menu bar item ask for Accessibility as in the direct download. What the edition asks for is permission to post input, which System Settings lists under Accessibility and which the mouse event tap and every action that sends keys need. The key combination field takes presses before macOS only with Input Monitoring, which the welcome page offers for a Logitech mouse.
+
 Open File and Open Folder take a file or folder chosen in the Open panel or dropped from Finder. Clicking the drop area or one of the preset folders opens the Open panel there; for a preset folder, Open chooses the folder itself. The path field shows the path and can't be typed in. Run Shortcut takes a shortcut's name typed into a field.
 
 The wheel is saved inside the app's container, at `~/Library/Containers/<bundle id>/Data/Library/Application Support/Gooey Wheel/wheel.json`, so the App Store edition and the direct download each have their own wheel.

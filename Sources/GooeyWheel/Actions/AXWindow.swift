@@ -1,5 +1,8 @@
 import AppKit
 
+// The App Sandbox doesn't allow Accessibility on other apps' windows.
+#if !APPSTORE
+
 /// A window of some app, read and changed through the Accessibility API as Rectangle does.
 /// Frames are in AppKit screen coordinates; the conversion to the API's top-left origin
 /// happens here.
@@ -151,3 +154,4 @@ struct AXWindow {
         return AXValueGetValue(value as! AXValue, .cgSize, &size) ? size : nil
     }
 }
+#endif

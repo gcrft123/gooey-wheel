@@ -21,6 +21,10 @@ The text Gooey Wheel's App Store Connect record uses. Edit it here first, then c
 | App Privacy | Data Not Collected |
 | Encryption | None (`ITSAppUsesNonExemptEncryption` is false) |
 
+## Screenshots
+
+`scripts/render-app-store-screenshots.sh` renders five 2880 × 1800 screenshots from the App Store edition's demos into `build/App Store/screenshots`, each with a caption from the script. Rerun it after changing the default wheel or anything the demos show.
+
 ## Promotional text
 
 Press a mouse button and a ring of actions opens under the cursor. Move toward one and let go. Control media, volume, windows, apps, and shortcuts without reaching for the keyboard.
@@ -29,11 +33,11 @@ Press a mouse button and a ring of actions opens under the cursor. Move toward o
 
 Gooey Wheel opens a ring of up to eight actions from a mouse button, wherever the cursor is. Click the button to open it, or hold the button, move toward an action, and release to run it. The ring draws in a liquid style: bubbles stretch, bridge, and pinch apart as they move.
 
-Each bubble runs an action, chosen from about 85:
+Each bubble runs an action, chosen from about 80:
 
 • Media: play and pause, skip, volume, mute, sound output and microphone input
-• Windows: halves, thirds, quarters, maximize and center, minimize, full screen, move to the next display, Mission Control and Spaces
-• Apps: open an app, file, folder, or website, switch to the previous app, hide or quit apps
+• Windows: tile the front window to a half, fill or center it (macOS 15 or later), minimize, full screen, Mission Control and Spaces
+• Apps: open an app, file, folder, or website, switch to the previous app, hide apps
 • Editing: copy, paste, undo, find, new tab, and more, sent to the app in front
 • Automation: any keyboard shortcut, typed text, and Shortcuts
 • System: screenshots, Spotlight, the color picker, Keep Awake, Lock Screen
@@ -44,7 +48,7 @@ Folders hold more actions. Rest the cursor on a folder and its items fan out aro
 
 Gooey Wheel works with any mouse that has a middle or side button. It reads many Logitech mice directly, including buttons macOS doesn't report, such as the gesture button, and plays taps on mice with a haptic motor.
 
-Gooey Wheel is free and open source. It needs Accessibility to take over the mouse button and send shortcuts, and Input Monitoring to read Logitech mice. It collects no data and makes no network connections.
+Gooey Wheel is free and open source. It needs Accessibility to take over the mouse button and send keyboard shortcuts, and Input Monitoring to read Logitech mice. It collects no data and makes no network connections.
 
 ## Keywords
 
@@ -66,8 +70,8 @@ To try it:
 
 Why it asks for each permission:
 
-• Accessibility. The app installs an event tap that removes the assigned mouse button's clicks from the event stream, so the button opens the wheel instead of acting in the app under the cursor. Accessibility is also how it sends keyboard shortcuts such as Copy or Mission Control to the frontmost app, and how it moves and resizes the frontmost window for the window layout actions. Without it, the wheel still opens from the menu bar item.
-• Input Monitoring. The app opens Logitech mice as HID devices to read buttons that macOS doesn't report as mouse buttons, such as the MX Master's gesture button.
+• Accessibility (posting events). Gooey Wheel turns a mouse button into a launcher for keyboard shortcuts, so it's an input utility: sending keystrokes is how nearly every action works. Choosing Copy sends ⌘C to the frontmost app, Space Left sends ⌃←, and Move Window sends the system's own Window → Move & Resize shortcuts. The app requests this with CGRequestPostEventAccess and sends events with CGEventPost. It also installs an event tap on mouse events that removes the assigned button's clicks from the event stream, so the button opens the wheel instead of acting in the app under the cursor. It doesn't use the AXUIElement API on other apps. Without the permission, the wheel still opens from the menu bar item, and actions that don't send keys (volume, sound output, opening apps, files, and websites) work.
+• Input Monitoring. The app opens Logitech mice as HID devices to read buttons that macOS doesn't report as mouse buttons, such as the MX Master's thumb button. The field that records a keyboard shortcut also uses it while focused.
 • USB and Bluetooth entitlements. Logitech mice connect through a USB receiver or Bluetooth. Over Bluetooth the app also reads the mouse's battery level.
 • User-selected files. Open File and Open Folder actions open a file or folder the user picks in an Open panel, kept as an app-scoped bookmark. Custom icons are pictures the user picks.
 

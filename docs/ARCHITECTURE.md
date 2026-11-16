@@ -125,15 +125,19 @@ What the condition compiles out:
 | Code | In its place |
 | --- | --- |
 | `SymbolicHotKey.swift`, `SystemShortcut` reading SkyLight's shortcut table | `SystemShortcut` and `Screenshots` post Apple's default key combinations |
-| `CoreDockSendNotification` and Dock hiding's CoreDock calls | `Dock` opens Mission Control.app and Apps.app, or posts ⌃↓ and F11. Dock hiding posts ⌥⌘D and judges the state from `NSScreen.visibleFrame` |
-| `MenuItems.swift` (Accessibility on other apps' menus and the Apple menu's private selectors) | Default shortcuts. `FinderCommand` sends Finder's own shortcuts to Finder's process alone |
+| `CoreDockSendNotification` and Dock hiding's CoreDock calls | `Dock` opens Mission Control.app and Apps.app, or posts ⌃↓ and F11. Dock hiding posts ⌥⌘D, and `ActionCatalog.stateless` makes it a plain action instead of a toggle |
+| `AXWindow.swift`, `WindowGeometry.swift`, Move Window's planning and previews, Next Display, and the `kAXFrontmost` step of `AppSwitching.activate`: every use of Accessibility on another process, which the sandbox refuses (`deny mach-lookup com.apple.axserver`) even with the user's grant | `WindowTiling` posts the system's Move & Resize shortcuts. Minimize, Full Screen, Close Window, Hide App and Hide Others post ⌘M, ⌃⌘F, ⌘W, ⌘H and ⌥⌘H, since the sandbox also refuses `hide()` on another app. Previous App uses `activate()` alone, which works sandboxed |
+| `AXIsProcessTrusted` | `Permissions` checks and asks for the PostEvent privilege (`CGPreflightPostEventAccess`, `CGRequestPostEventAccess`), which System Settings lists under Accessibility and which posting keys and the mouse event tap need. The key combination field's event tap needs ListenEvent (Input Monitoring) |
+| `MenuItems.swift` (Accessibility on other apps' menus and the Apple menu's private selectors) | Default shortcuts. `FinderCommand` sends Finder's own shortcuts to Finder's process alone. Empty Trash asks in the app first and sends ⌥⇧⌘⌫ |
 | `DisplayActions.swift`, `NaturalScrolling.swift`, `Appearance`, `FocusState`, `WiFi`, the login framework, `IOPMCopySystemPowerSettings`, `privateFunction` | Nothing: their actions are left out |
 | `NowPlaying.swift` and the perl helper | Media keys only |
 | `ChildProcess.swift` and the actions that run programs | Run Shortcut opens a `shortcuts://` link; the Shortcut field is plain text instead of a list from `shortcuts list` |
 | `terminate()` for Quit App and Quit an App, which the sandbox refuses | Quit App posts ⌘Q to the app's process; Quit an App is left out |
 | The `--toast-preview`, `--welcome-preview` and `--welcome-record` modes, which run `screencapture` | `--demo-capture` captures through ScreenCaptureKit |
 
-Two things work the same way in both editions. `UserHome` expands `~` to the user's home folder from the account record, since `NSHomeDirectory()` names the app's container in the sandbox. Move Window tells windows apart by their Accessibility elements, which compare equal through `CFEqual`.
+The tiling shortcuts are Globe-Control combinations held in the window server's shortcut table (ids 237 to 243), with the same key and flags as Mission Control's ⌃↑, App Exposé's ⌃↓ and the Spaces shortcuts ⌃← and ⌃→, because arrow keys carry the Globe flag on their own. In the App Store edition `KeySender` presses Globe as a key before a combination that includes it, as the keyboard does, so a tiling shortcut differs from a Spaces one.
+
+Two things work the same way in both editions. `UserHome` expands `~` to the user's home folder from the account record, since `NSHomeDirectory()` names the app's container in the sandbox. Move Window, in the direct download, tells windows apart by their Accessibility elements, which compare equal through `CFEqual`.
 
 Open File and Open Folder store an `ItemLocation`: the path, and in the App Store edition a second line holding a security-scoped bookmark in base64. The path editor makes the bookmark when a file is chosen in the Open panel or dropped from Finder, and the action resolves it and starts access before opening. An argument without the second line is read as a path, as before.
 

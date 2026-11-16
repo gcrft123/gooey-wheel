@@ -2,11 +2,20 @@
 # Renders the welcome panel's video, assets/welcome.mov: the tour demo on a clear stage,
 # captured frame by frame off screen and encoded as HEVC with alpha, so the wheel and its
 # shadow lie over the panel's yellow. Needs ffmpeg. Takes a few minutes.
+#
+# With GOOEY_APPSTORE=1 it renders the App Store edition's default wheel, which leaves out some
+# actions, into assets/welcome-appstore.mov.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-swift build -c release --disable-keychain
-bin="$(swift build -c release --disable-keychain --show-bin-path)/GooeyWheel"
+build=(swift build -c release --disable-keychain)
+out=assets/welcome.mov
+if [[ "${GOOEY_APPSTORE:-}" == 1 ]]; then
+  build+=(--build-path .build-mas)
+  out=assets/welcome-appstore.mov
+fi
+"${build[@]}"
+bin="$("${build[@]}" --show-bin-path)/GooeyWheel"
 frames="$(mktemp -d)/frames"
 
 # The script's last moment matches its first, so that frame is left out and the loop is seamless.
@@ -21,6 +30,6 @@ rm "$(ls -d "$frames"/*.png | tail -1)"
 ffmpeg -loglevel error -y -framerate $rate -i "$frames/%04d.png" \
   -vf "crop=960:960:264:170,scale=860:860" \
   -c:v hevc_videotoolbox -alpha_quality 0.8 -b:v 2500k -tag:v hvc1 -pix_fmt bgra \
-  assets/welcome.mov
+  "$out"
 rm -rf "$(dirname "$frames")"
-ls -l assets/welcome.mov
+ls -l "$out"

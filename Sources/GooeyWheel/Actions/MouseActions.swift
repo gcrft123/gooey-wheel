@@ -528,10 +528,3 @@ enum MouseActions {
     }
     #endif
 }
-
-private extension SelfTest.Context {
-    func expectValue<T>(_ value: T?, _ message: @autoclosure () -> String) throws -> T {
-        guard let value else { throw SelfTest.Failure(message: message()) }
-        return value
-    }
-}

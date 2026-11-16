@@ -4,7 +4,8 @@ import Carbon.HIToolbox
 /// Takes key presses from the session before the window server matches them against
 /// shortcuts: the system's, such as ⌘Space or ⌃→, and other apps' global hotkeys. The
 /// keystroke recorder uses it so a combination it records isn't also run. Needs
-/// Accessibility; without it `start` returns false and keys reach the panel as usual.
+/// Accessibility, or Input Monitoring in the App Store edition (`Permissions.canTapKeys`);
+/// without it `start` returns false and keys reach the panel as usual.
 final class KeyCapture {
     /// Offered each key-down. Returns whether it took the press; a taken press, and its
     /// release, go no further.
@@ -77,7 +78,7 @@ extension KeyCapture {
     static var tests: [SelfTest.Case] {
         [
             SelfTest.Case("keys.recorderBeatsHotKeys") { ctx in
-                guard AXIsProcessTrusted() else { try ctx.skip("Accessibility not granted") }
+                guard Permissions.canTapKeys else { try ctx.skip(Permissions.canPostEvents ? "Input Monitoring not granted" : "Accessibility not granted") }
                 let combo = KeyCombo(kVK_PageDown, [.maskControl, .maskAlternate, .maskShift, .maskCommand])
                 var fired = 0
                 let id: UInt32 = 90

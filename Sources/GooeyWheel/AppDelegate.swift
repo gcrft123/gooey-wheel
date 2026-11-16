@@ -209,7 +209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.title = "Assign Button"
         item.action = #selector(assignButton)
         item.isEnabled = true
-        accessibilityItem?.isHidden = AXIsProcessTrusted()
+        accessibilityItem?.isHidden = KeySender.isTrusted
         updateWelcome()
         let assignHint = "Assign a mouse button in the menu bar"
         if waitingForPress {
@@ -383,7 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// press, after a wait times out, or once a permission or a Logitech mouse arrives.
     private func listenForWelcome() {
         guard welcomeListening, !waitingForPress else { return }
-        let standardIdle = AXIsProcessTrusted() && !standard.isCapturing
+        let standardIdle = KeySender.isTrusted && !standard.isCapturing
         let logitechIdle = logitech.canCapture && !logitech.isCapturing
         guard standardIdle || logitechIdle else { return }
         _ = capturePress(timeout: 600) { [weak self] pressed in
@@ -406,7 +406,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateWelcome(assigned: Bool = false) {
         guard let welcome else { return }
         var missing: [WelcomePanel.Permission] = []
-        if !AXIsProcessTrusted() { missing.append(.accessibility) }
+        if !KeySender.isTrusted { missing.append(.accessibility) }
         if logitech.status == .needsPermission { missing.append(.inputMonitoring) }
         let name: String?
         switch assignment {
@@ -492,8 +492,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func openAccessibility() {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        if !AXIsProcessTrustedWithOptions(options),
+        if !Permissions.requestPostEvents(),
            let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }

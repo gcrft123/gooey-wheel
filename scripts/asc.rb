@@ -21,6 +21,7 @@ if File.exist?(env_file)
 end
 key_id, issuer, key_path = ENV.values_at("GOOEY_ASC_KEY_ID", "GOOEY_ASC_ISSUER_ID", "GOOEY_ASC_KEY")
 abort "Set GOOEY_ASC_KEY_ID, GOOEY_ASC_ISSUER_ID and GOOEY_ASC_KEY." unless key_id && issuer && key_path
+key_path = File.expand_path(key_path)
 method, path, body_file = ARGV
 abort "usage: asc.rb GET|POST|PATCH|DELETE <path> [body.json]" unless method && path
 

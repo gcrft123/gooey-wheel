@@ -39,21 +39,9 @@ enum SystemActions {
             "system.logOut": afterClose { _ in try SystemShortcut.press(KeyCombo(kVK_ANSI_Q, [.maskShift, .maskCommand])) },
             "system.forceQuit": afterClose { _ in try SystemShortcut.press(KeyCombo(kVK_Escape, [.maskCommand, .maskAlternate])) },
         ]) { $1 }
-        map["system.toggleDock"] = dockHiding
+        map["system.toggleDock"] = afterClose { _ in try SystemShortcut.press(Dock.toggleKeys) }
         return map
     }()
-
-    /// The Dock's state is judged from the screens, so it is read again once the Dock has moved.
-    private static var dockHiding: ActionBehavior {
-        var behavior = ActionBehavior(run: { _ in
-            try SystemShortcut.press(Dock.toggleKeys)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                NotificationCenter.default.post(name: ActionBehaviors.stateDidChange, object: nil)
-            }
-        })
-        behavior.isOn = { _ in Dock.autoHides }
-        return behavior
-    }
     #else
     static let behaviors: [String: ActionBehavior] = {
         // A shortcut lent by a run that crashed goes back before anything lends one again.
@@ -235,6 +223,7 @@ enum SystemActions {
                     ("system.logOut", kVK_ANSI_Q, [.maskShift, .maskCommand]),
                     ("system.forceQuit", kVK_Escape, [.maskCommand, .maskAlternate]),
                     ("system.toggleDock", kVK_ANSI_D, [.maskAlternate, .maskCommand]),
+                    ("desktop.hideOthers", Int(KeyCombo.character("h")?.key ?? CGKeyCode(kVK_ANSI_H)), [.maskAlternate, .maskCommand]),
                 ]
                 let tap = EventRecorder()
                 defer { tap.stop() }
@@ -263,11 +252,6 @@ enum SystemActions {
                     }
                 }
             },
-            SelfTest.Case("system.dockHidingEstimate") { ctx in
-                let hides = try unwrap(Dock.autoHides, ctx, "no screen to judge from")
-                try ctx.expect(ActionBehaviors.behavior(for: "system.toggleDock")?.isOn?(.current) == hides, "behavior disagrees")
-                ctx.note("hiding \(hides ? "on" : "off"), judged from the visible frame")
-            },
             SelfTest.Case("system.emptyTrashGoesToFinder") { ctx in
                 // Recorded, not sent: it would empty the Trash once the user confirmed.
                 guard let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first else {
@@ -276,9 +260,10 @@ enum SystemActions {
                 try KeySender.requireTrust()
                 let tap = EventRecorder()
                 defer { tap.stop() }
-                try FinderCommand.send(KeyCombo(kVK_Delete, [.maskShift, .maskCommand]), activating: false)
+                // The action asks first; this sends what it sends once the user agrees.
+                try FinderCommand.send(Trash.shortcut, activating: false)
                 try ctx.expect(ctx.wait(upTo: 1, until: { !tap.events.isEmpty }), "sent nothing")
-                try expectKey(tap.events, kVK_Delete, [.maskShift, .maskCommand], "Empty Trash", ctx)
+                try expectKey(tap.events, kVK_Delete, [.maskAlternate, .maskShift, .maskCommand], "Empty Trash", ctx)
                 try ctx.expect(tap.targets.allSatisfy { $0 == finder.processIdentifier }, "sent to \(Set(tap.targets)), not Finder")
             },
             SelfTest.Case("system.sessionAndPower") { ctx in

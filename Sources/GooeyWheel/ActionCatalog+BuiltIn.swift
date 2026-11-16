@@ -405,7 +405,14 @@ extension ActionCatalog {
 
 /// The places Move Window puts the front window, as fractions of the screen's visible area.
 enum WindowLayout {
-    static let choices: [ActionChoice] = [
+    #if APPSTORE
+    /// Those the system's tiling has a shortcut for.
+    static let choices = all.filter { choice in WindowTiling.keys.contains { $0.layout == choice.id } }
+    #else
+    static let choices = all
+    #endif
+
+    static let all: [ActionChoice] = [
         ActionChoice(id: "leftHalf", title: "Left Half", symbol: "inset.filled.lefthalf.rectangle"),
         ActionChoice(id: "rightHalf", title: "Right Half", symbol: "inset.filled.righthalf.rectangle"),
         ActionChoice(id: "topHalf", title: "Top Half", symbol: "inset.filled.tophalf.rectangle"),

@@ -43,7 +43,8 @@ app="$out/Gooey Wheel.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin" "$app/Contents/MacOS/GooeyWheel"
-cp assets/welcome.mov "$app/Contents/Resources/welcome.mov"
+# The welcome video shows the App Store edition's default wheel (scripts/render-welcome-video.sh).
+cp assets/welcome-appstore.mov "$app/Contents/Resources/welcome.mov"
 scripts/make-icns.sh "$bin" "$app/Contents/Resources/AppIcon.icns"
 
 cat > "$app/Contents/Info.plist" <<PLIST
@@ -100,6 +101,7 @@ fi
 profile="${GOOEY_MAS_PROFILE:-$HOME/.appstoreconnect/Gooey_Wheel_Mac_App_Store.provisionprofile}"
 if [[ ! -f "$profile" ]]; then
   echo "Downloading the provisioning profile to $profile"
+  mkdir -p "$(dirname "$profile")"
   scripts/asc.rb GET '/v1/profiles?filter[name]=Gooey%20Wheel%20Mac%20App%20Store&filter[profileState]=ACTIVE' |
     /usr/bin/python3 -c 'import base64, json, sys; open(sys.argv[1], "wb").write(base64.b64decode(json.load(sys.stdin)["data"][0]["attributes"]["profileContent"]))' "$profile"
 fi
@@ -118,7 +120,7 @@ plutil -insert com\\.apple\\.developer\\.team-identifier -string "$team" "$entit
 timed codesign --force --sign "Apple Distribution" --entitlements "$entitlements" "$app"
 codesign --verify --strict --verbose=2 "$app"
 
-installer="$(security find-identity -v -p basic | grep -oE '"(3rd Party Mac Developer Installer|Mac Installer Distribution): [^"]+"' | head -1 | tr -d '"')"
+installer="$(security find-identity -v -p basic | grep -oE '"(3rd Party Mac Developer Installer|Mac Installer Distribution): [^"]+"' | head -1 | tr -d '"' || true)"
 if [[ -z "$installer" ]]; then
   echo "No Mac Installer Distribution certificate in the keychain." >&2
   exit 1
@@ -129,7 +131,8 @@ timed productbuild --component "$app" /Applications --sign "$installer" "$pkg" >
 echo "$pkg"
 
 if [[ $mode == upload ]]; then
-  # altool finds the key file by its id in API_PRIVATE_KEYS_DIR.
+  # altool finds the key by its id, as AuthKey_<id>.p8 in API_PRIVATE_KEYS_DIR, so the file has to
+  # keep the name App Store Connect gave it.
   if [[ -z "${GOOEY_ASC_KEY_ID:-}" && -f ~/.appstoreconnect/gooey.env ]]; then
     source ~/.appstoreconnect/gooey.env
   fi

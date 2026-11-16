@@ -81,8 +81,16 @@ enum ActionCatalog {
     #if APPSTORE
     static let categories: [ActionCategory] = builtIn.map { category in
         ActionCategory(id: category.id, title: category.title, symbol: category.symbol,
-                       actions: category.actions.filter { leftOut[$0.id] == nil })
+                       actions: category.actions.filter { leftOut[$0.id] == nil }.map { action in
+            var action = action
+            if stateless.contains(action.id) { action.control = nil }
+            return action
+        })
     }
+
+    /// Toggles whose state the App Store edition can't read, which are plain actions there.
+    /// Whether the Dock hides is the Dock's own preference.
+    static let stateless: Set<String> = ["system.toggleDock"]
 
     /// Actions the App Store edition doesn't have, with their names for items that used them.
     /// Each needs a private interface, another app's preferences, or a program run outside the
@@ -102,6 +110,9 @@ enum ActionCatalog {
         "system.restart": "Restart",
         "system.shutDown": "Shut Down",
         "mouse.scrollDirection": "Natural Scrolling",
+        // It moves a window to another display through Accessibility, which the sandbox keeps
+        // out of other apps.
+        "desktop.nextDisplay": "Next Display",
         // A sandboxed app's request to quit another app is refused.
         "apps.quit": "Quit an App",
         "automation.shell": "Shell Command",

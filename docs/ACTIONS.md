@@ -101,7 +101,7 @@
 
 ## App Store edition
 
-The App Store edition runs in the App Sandbox and uses public interfaces only, so it leaves some actions out and does others differently. Saved wheels that use a left-out action keep the item and its name, with no action.
+The App Store edition runs in the App Sandbox and uses public interfaces only, so it leaves some actions out and does others differently. The sandbox doesn't allow Accessibility on other apps, so nothing reads or moves another app's windows or presses its menu items; the window actions send shortcuts to the app in front instead. Saved wheels that use a left-out action keep the item and its name, with no action.
 
 | Left out | Why |
 | --- | --- |
@@ -111,14 +111,18 @@ The App Store edition runs in the App Sandbox and uses public interfaces only, s
 | Display Off, Shell Command, AppleScript | They run programs. Run Shortcut stands in, since a shortcut can run a shell script or an AppleScript |
 | Switch User | No public interface |
 | Quit an App | The sandbox refuses a request to quit another app |
+| Next Display | Moving another app's window needs Accessibility |
 
 | Action | Difference |
 | --- | --- |
 | Mission Control, Apps | Opens Mission Control.app or Apps.app |
 | App Exposé, Show Desktop, Space Left, Space Right, Spotlight, Emoji & Symbols, Lock Screen, Log Out, Force Quit, Screenshot | Sends Apple's default shortcut: ⌃↓, F11, ⌃←, ⌃→, ⌘Space, ⌃⌘Space, ⌃⌘Q, ⇧⌘Q, ⌥⌘⎋, and ⇧⌘4, ⇧⌘3, or ⌃⇧⌘4. Capture Window sends ⇧⌘4, then Space. A shortcut the user has changed or turned off doesn't work |
-| Dock Hiding | Sends ⌥⌘D. The toggle's state is judged from the space the Dock keeps clear on the screens |
+| Move Window | Sends the shortcut for the system's tiling (Window → Move & Resize), which macOS 15 added: Globe-Control with ←, →, ↑ or ↓ for the halves, F for Fill (Maximize), C for Center, and R for Return to Previous Size (Restore). Only those seven layouts are offered; a saved layout without a shortcut becomes the nearest one (thirds, two thirds and quarters the half on their side, Center Third Center, Almost Maximize and Maximize Height Maximize). Unavailable on macOS 14. The wheel shows no preview of where the window goes |
+| Minimize, Full Screen, Close Window | Sends ⌘M, ⌃⌘F or ⌘W to the app in front, which acts on its front window. In apps with tabs, ⌘W closes the tab |
+| Hide App, Hide Others | Sends ⌘H or ⌥⌘H to the app in front |
+| Dock Hiding | Sends ⌥⌘D. It's a plain action, since whether the Dock hides can't be read |
 | Quit App | Sends ⌘Q to the focused app |
-| Empty Trash | Brings Finder forward and sends it ⇧⌘⌫. Finder asks first unless its warning is turned off |
+| Empty Trash | Asks first, then brings Finder forward and sends it ⌥⇧⌘⌫, which empties the Trash without Finder asking again. Finder's own warning setting can't be read |
 | New Finder Window | Brings Finder forward and sends it ⌘N. The window opens where Finder's settings say |
 | Open File, Open Folder | The file or folder is chosen in the Open panel or dropped from Finder, and the item keeps a bookmark to it. The path can't be typed |
 | Run Shortcut | The shortcut's name is typed instead of picked from a list. Opens the Shortcuts app's `shortcuts://run-shortcut` link |
