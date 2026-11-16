@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Renders the App Store screenshots into build/App Store/screenshots: 2880 × 1800 opaque PNGs of the
 # App Store edition's demos, captured off screen on a clear stage, scaled up and placed under a
-# caption on assets/app-store-background.png.
+# caption on its own background from assets/app-store-backgrounds, which are 2880 × 1800 already.
 #
 # Needs ImageMagick (`magick`) and SF Pro Display in
 # ~/Library/Fonts or /Library/Fonts (from developer.apple.com/fonts).
@@ -28,11 +28,6 @@ work="$(mktemp -d)"
 rm -rf "$out"
 mkdir -p "$out"
 
-# The background, assets/app-store-background.png, is scaled to cover the screenshot and cropped
-# to its center.
-magick assets/app-store-background.png -alpha off -filter Lanczos -resize '2880x1800^' \
-  -gravity center -extent 2880x1800 "$work/background.png"
-
 # name | demo script | moments, side by side | title | subtitle
 shots=(
   "1-wheel|wheel|hover|A ring of actions under your cursor|Click a mouse button, then click or release over an action"
@@ -57,7 +52,7 @@ for shot in "${shots[@]}"; do
   # Captures are at the display's 2x scale. Doubling them again keeps the goo's soft edges
   # clean, and content larger than the space under the caption is shrunk back to fit. Several
   # moments sit side by side, 120 pixels apart before scaling.
-  magick "$work/background.png" \
+  magick "assets/app-store-backgrounds/${name%%-*}.jpg" \
     \( -background none "${pieces[@]}" -trim +repage -bordercolor none -border 60x0 \
        -gravity center +append -trim +repage -filter Lanczos -resize 200% -resize '2400x1240>' \) \
     -gravity center -geometry +0+170 -composite \
