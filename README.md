@@ -7,7 +7,7 @@ ___
 </p>
 
 <p align="center">
-  <a href="https://github.com/gcrft123/gooey-wheel/releases/latest/download/Gooey-Wheel.zip"><b>Download ↓</b></a>
+  <a href="https://github.com/gcrft123/gooey-wheel/releases/latest"><b>Download ↓</b></a>
   &nbsp;·&nbsp;
   <a href="https://github.com/gcrft123/gooey-wheel/releases">Releases</a>
   &nbsp;·&nbsp;
@@ -25,7 +25,7 @@ ___
 
 # Getting started
 
-<a href="https://github.com/gcrft123/gooey-wheel/releases/latest/download/Gooey-Wheel.zip"><b>Download</b></a> the latest Gooey Wheel release, and install it onto your Mac (it updates automatically once a GitHub release is published). The onboarding will take you through assigning an activation button, which is always reconfigurable in the menu bar item. Gooey will open the wheel for you for the first time. 
+<a href="https://github.com/gcrft123/gooey-wheel/releases/latest"><b>Download</b></a> the latest Gooey Wheel release, and install it onto your Mac (it updates automatically once a GitHub release is published). The onboarding will take you through assigning an activation button, which is always reconfigurable in the menu bar item. Gooey will open the wheel for you for the first time. 
 
 It can hold up to 8 different actions: click one of them to try out the defaults. To close the wheel, press Esc, the X button in the center, the space outside the wheel, or the activation button. 
 
