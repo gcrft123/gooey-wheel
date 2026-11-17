@@ -63,11 +63,19 @@ jobs:
           app="build/Gooey Wheel.app"
           plutil -lint "$app/Contents/Info.plist"
           for file in MacOS/GooeyWheel Frameworks/libGooeyNowPlaying.dylib Frameworks/Sparkle.framework \
-            "Resources/Sparkle LICENSE.txt" Resources/welcome.mov Resources/AppIcon.icns; do
+            "Resources/Sparkle LICENSE.txt" Resources/welcome.mov Resources/AppIcon.icns Resources/Assets.car; do
             [[ -e "$app/Contents/$file" ]] || { echo "::error::The app has no Contents/$file"; exit 1; }
           done
           codesign --verify --deep --strict --verbose=2 "$app"
           ditto -c -k --keepParent "$app" build/Gooey-Wheel.zip
+
+      - name: Build the App Store edition
+        timeout-minutes: 10
+        env:
+          GOOEY_APPSTORE: "1"
+        run: |
+          swift build -c release --disable-keychain --build-path .build-mas
+          scripts/check-private-names.sh "$(swift build -c release --disable-keychain --build-path .build-mas --show-bin-path)/GooeyWheel"
 
       - name: Render off screen
         timeout-minutes: 5

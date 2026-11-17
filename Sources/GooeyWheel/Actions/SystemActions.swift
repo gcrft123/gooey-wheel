@@ -3,20 +3,55 @@ import Carbon.HIToolbox
 
 /// Mission Control and Spaces, system panels, appearance and power, and the session.
 enum SystemActions {
-    static let behaviors: [String: ActionBehavior] = {
-        // A shortcut lent by a run that crashed goes back before anything lends one again.
-        SymbolicHotKey.restoreInterrupted()
-
+    /// What both editions do the same way.
+    private static var shared: [String: ActionBehavior] {
         var map: [String: ActionBehavior] = [
             "desktop.missionControl": afterClose { _ in try Dock.show(.missionControl) },
             "desktop.appExpose": afterClose { _ in try Dock.show(.appExpose) },
             "desktop.showDesktop": afterClose { _ in try Dock.show(.desktop) },
             "desktop.launchpad": afterClose { _ in try Dock.show(.apps) },
+            "system.screenshot": afterClose { invocation in try Screenshots.take(invocation.argument ?? "selection") },
+            "system.colorPicker": afterClose { invocation in ColorPicker.pick(returningTo: invocation.frontmost) },
+            // Siri.app does what the Siri key does. Siri AI.app is the typed chat.
+            "system.siri": ActionBehavior(timing: .afterClose, isAvailable: { SystemApps.url(siri) != nil }) { _ in
+                try SystemApps.open(siri)
+            },
+            "system.screenSaver": afterClose { _ in try SystemApps.open(screenSaver) },
+            "system.emptyTrash": afterClose { _ in try Trash.empty() },
+        ]
+        map["system.keepAwake"] = toggle(isOn: { KeepAwake.isOn }, set: KeepAwake.set)
+        return map
+    }
+
+    #if APPSTORE
+    /// Apple's default key combinations stand in for the shortcuts the other edition reads
+    /// from the window server, and for the Apple menu's items.
+    static let behaviors: [String: ActionBehavior] = {
+        var map = shared
+        map.merge([
+            "desktop.spaceLeft": .keys(KeyCombo(kVK_LeftArrow, .maskControl)),
+            "desktop.spaceRight": .keys(KeyCombo(kVK_RightArrow, .maskControl)),
+            "system.spotlight": afterClose { _ in try SystemShortcut.press(KeyCombo(kVK_Space, .maskCommand)) },
+            "system.emoji": afterClose { _ in try SystemShortcut.press(KeyCombo(kVK_Space, [.maskControl, .maskCommand])) },
+            "system.lockScreen": afterClose { _ in try SystemShortcut.press(KeyCombo(kVK_ANSI_Q, [.maskControl, .maskCommand])) },
+            "system.sleep": afterClose { _ in try Session.sleep() },
+            // Log Out… asks first, as it does from the Apple menu.
+            "system.logOut": afterClose { _ in try SystemShortcut.press(KeyCombo(kVK_ANSI_Q, [.maskShift, .maskCommand])) },
+            "system.forceQuit": afterClose { _ in try SystemShortcut.press(KeyCombo(kVK_Escape, [.maskCommand, .maskAlternate])) },
+        ]) { $1 }
+        map["system.toggleDock"] = afterClose { _ in try SystemShortcut.press(Dock.toggleKeys) }
+        return map
+    }()
+    #else
+    static let behaviors: [String: ActionBehavior] = {
+        // A shortcut lent by a run that crashed goes back before anything lends one again.
+        SymbolicHotKey.restoreInterrupted()
+
+        var map = shared
+        map.merge([
             "desktop.spaceLeft": ActionBehavior(run: { _ in try SymbolicHotKey.press(SymbolicHotKey.spaceLeft) }),
             "desktop.spaceRight": ActionBehavior(run: { _ in try SymbolicHotKey.press(SymbolicHotKey.spaceRight) }),
 
-            "system.screenshot": afterClose { invocation in try Screenshots.take(invocation.argument ?? "selection") },
-            "system.colorPicker": afterClose { invocation in ColorPicker.pick(returningTo: invocation.frontmost) },
             "system.spotlight": afterClose { _ in try SystemShortcut.press(SymbolicHotKey.spotlight) },
             // Pressing the clock in the menu bar through Accessibility opens Notification Center
             // and closes it again half a second later, on macOS 27. Its shortcut opens it for good,
@@ -53,15 +88,10 @@ enum SystemActions {
                     try sendKeys(KeyCombo(kVK_Space, [.maskControl, .maskCommand]))
                 }
             },
-            // Siri.app does what the Siri key does. Siri AI.app is the typed chat.
-            "system.siri": ActionBehavior(timing: .afterClose, isAvailable: { SystemApps.url(siri) != nil }) { _ in
-                try SystemApps.open(siri)
-            },
 
             "system.lockScreen": afterClose { invocation in try Session.lock(invocation.frontmost) },
             "system.sleep": ActionBehavior(timing: .afterClose, isAvailable: { !Session.sleepIsDisabled }) { _ in try Session.sleep() },
             "system.displaySleep": afterClose { _ in try Session.displaySleep() },
-            "system.screenSaver": afterClose { _ in try SystemApps.open(screenSaver) },
             "system.switchUser": afterClose { _ in try Session.switchUser() },
             "system.logOut": afterClose { invocation in try Session.pressAppleItem(.logOut, invocation.frontmost) },
             "system.restart": afterClose { invocation in try Session.pressAppleItem(.restart, invocation.frontmost) },
@@ -73,17 +103,16 @@ enum SystemActions {
                     try sendKeys(KeyCombo(kVK_Escape, [.maskCommand, .maskAlternate]))
                 }
             },
-            "system.emptyTrash": afterClose { _ in try Trash.empty() },
-        ]
+        ]) { $1 }
 
         map["system.appearance"] = toggle(isOn: { Appearance.isDark }, set: Appearance.setIsDark)
         map["system.toggleDock"] = toggle(isOn: { Dock.autoHides }, set: Dock.setAutoHides)
-        map["system.keepAwake"] = toggle(isOn: { KeepAwake.isOn }, set: KeepAwake.set)
         map["system.wifi"] = toggle(isOn: { WiFi.isOn }, isAvailable: { WiFi.interface != nil }, set: WiFi.set)
         map["system.doNotDisturb"] = shortcutToggle(SymbolicHotKey.doNotDisturb) { FocusState.isOn }
         map["desktop.stageManager"] = shortcutToggle(SymbolicHotKey.stageManager) { stageManagerIsOn }
         return map
     }()
+    #endif
 
     static let siri = "com.apple.siri.launcher"
     static let screenSaver = "com.apple.ScreenSaver.Engine"
@@ -92,10 +121,12 @@ enum SystemActions {
         ActionBehavior(timing: .afterClose, run: run)
     }
 
+    #if !APPSTORE
     private static func sendKeys(_ combo: KeyCombo) throws {
         try KeySender.requireTrust()
         KeySender.whenModifiersReleased { try? KeySender.post(combo) }
     }
+    #endif
 
     /// A toggle whose state can be read and set.
     private static func toggle(
@@ -111,6 +142,7 @@ enum SystemActions {
         return behavior
     }
 
+    #if !APPSTORE
     /// A toggle flipped by a system shortcut. The state, when it can be read at all, changes
     /// a moment after the shortcut arrives, so the wheel is told to read it again.
     private static func shortcutToggle(_ id: Int, isOn: @escaping () -> Bool?) -> ActionBehavior {
@@ -130,11 +162,131 @@ enum SystemActions {
         CFPreferencesAppSynchronize(domain)
         return CFPreferencesCopyAppValue("GloballyEnabled" as CFString, domain) as? Bool ?? false
     }
+    #endif
 
     // MARK: Checks
 
-    static var tests: [SelfTest.Case] {
+    private static var sharedTests: [SelfTest.Case] {
         [
+            SelfTest.Case("system.everyActionHasABehavior") { ctx in
+                let ids = ActionCatalog.categories.flatMap(\.actions).map(\.id).filter { behaviors[$0] != nil }
+                try ctx.expect(ids.count == behaviors.count, "behaviors for ids not in the catalog: \(Set(behaviors.keys).subtracting(ids).sorted())")
+                ctx.note("\(ids.count) actions")
+            },
+            SelfTest.Case("system.keepAwake") { ctx in
+                try ctx.expect(!KeepAwake.isOn, "already on")
+                let behavior = try unwrap(ActionBehaviors.behavior(for: "system.keepAwake"), ctx, "missing")
+                try behavior.run?(.current)
+                defer { try? KeepAwake.set(false) }
+                try ctx.expect(behavior.isOn?(.current) == true, "not on")
+                var byProcess: Unmanaged<CFDictionary>?
+                IOPMCopyAssertionsByProcess(&byProcess)
+                let mine = (byProcess?.takeRetainedValue() as? [NSNumber: [[String: Any]]])?[NSNumber(value: getpid())] ?? []
+                try ctx.expect(mine.contains { $0["AssertType"] as? String == "PreventUserIdleDisplaySleep" }, "no assertion held")
+                try behavior.run?(.current)
+                try ctx.expect(behavior.isOn?(.current) == false, "still on")
+            },
+            SelfTest.Case("system.colorPickerHex") { ctx in
+                try ctx.expect(ColorPicker.hex(NSColor(srgbRed: 1, green: 0.5, blue: 0, alpha: 1)) == "#FF8000", "orange")
+                try ctx.expect(ColorPicker.hex(NSColor(white: 1, alpha: 1)) == "#FFFFFF", "white")
+                let p3 = ColorPicker.hex(NSColor(displayP3Red: 0, green: 0, blue: 1, alpha: 1))
+                try ctx.expect(p3 == "#0000FF", "Display P3 blue converts to \(p3)")
+                try ctx.preservingClipboard {
+                    ColorPicker.copy("#123ABC")
+                    try ctx.expect(NSPasteboard.general.string(forType: .string) == "#123ABC", "clipboard")
+                }
+                try ctx.expect(NSClassFromString("NSColorSampler") != nil, "no NSColorSampler")
+            },
+        ]
+    }
+
+    #if APPSTORE
+    static var tests: [SelfTest.Case] {
+        sharedTests + [
+            SelfTest.Case("desktop.missionControlFamily") { ctx in
+                // Each would cover the screen, so this stops at the apps and the keys.
+                for overview in [Dock.Overview.missionControl, .appExpose, .desktop, .apps] {
+                    try ctx.expect((overview.app.flatMap(SystemApps.url) != nil) != (overview.keys != nil), "\(overview) has no app and no keys")
+                }
+            },
+            SelfTest.Case("system.defaultShortcutsAreSent") { ctx in
+                // Recorded, not posted: each would act on the Mac.
+                try KeySender.requireTrust()
+                let expected: [(String, Int, CGEventFlags)] = [
+                    ("desktop.spaceLeft", kVK_LeftArrow, .maskControl),
+                    ("desktop.spaceRight", kVK_RightArrow, .maskControl),
+                    ("desktop.appExpose", kVK_DownArrow, .maskControl),
+                    ("desktop.showDesktop", kVK_F11, []),
+                    ("system.spotlight", kVK_Space, .maskCommand),
+                    ("system.emoji", kVK_Space, [.maskControl, .maskCommand]),
+                    ("system.lockScreen", kVK_ANSI_Q, [.maskControl, .maskCommand]),
+                    ("system.logOut", kVK_ANSI_Q, [.maskShift, .maskCommand]),
+                    ("system.forceQuit", kVK_Escape, [.maskCommand, .maskAlternate]),
+                    ("system.toggleDock", kVK_ANSI_D, [.maskAlternate, .maskCommand]),
+                    ("desktop.hideOthers", Int(KeyCombo.character("h")?.key ?? CGKeyCode(kVK_ANSI_H)), [.maskAlternate, .maskCommand]),
+                ]
+                let tap = EventRecorder()
+                defer { tap.stop() }
+                for (id, key, flags) in expected {
+                    tap.events.removeAll()
+                    try ActionBehaviors.behavior(for: id)?.run?(.current)
+                    try ctx.expect(ctx.wait(upTo: 1, until: { !tap.events.isEmpty }), "\(id) sent nothing")
+                    try expectKey(tap.events, key, flags, id, ctx)
+                }
+            },
+            SelfTest.Case("system.screenshotShortcuts") { ctx in
+                try ctx.expect(SystemApps.url("com.apple.screenshot.launcher") != nil, "no Screenshot app")
+                try KeySender.requireTrust()
+                let tap = EventRecorder()
+                defer { tap.stop() }
+                for (choice, combo) in Screenshots.shortcuts {
+                    tap.events.removeAll()
+                    try Screenshots.take(choice)
+                    try ctx.expect(ctx.wait(upTo: 1, until: { !tap.events.isEmpty }), "\(choice) sent nothing")
+                    try expectKey(tap.events, Int(combo.key), combo.modifiers, choice, ctx)
+                    if choice == "window" {
+                        let space = ctx.wait(upTo: Screenshots.windowModeDelay + 0.5) {
+                            tap.events.contains { $0.type == .keyDown && $0.getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_Space) }
+                        }
+                        try ctx.expect(space, "window capture didn't follow with Space")
+                    }
+                }
+            },
+            SelfTest.Case("system.emptyTrashGoesToFinder") { ctx in
+                // Recorded, not sent: it would empty the Trash once the user confirmed.
+                guard let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first else {
+                    try ctx.skip("Finder isn't running")
+                }
+                try KeySender.requireTrust()
+                let tap = EventRecorder()
+                defer { tap.stop() }
+                // The action asks first; this sends what it sends once the user agrees.
+                try FinderCommand.send(Trash.shortcut, activating: false)
+                try ctx.expect(ctx.wait(upTo: 1, until: { !tap.events.isEmpty }), "sent nothing")
+                try expectKey(tap.events, kVK_Delete, [.maskAlternate, .maskShift, .maskCommand], "Empty Trash", ctx)
+                try ctx.expect(tap.targets.allSatisfy { $0 == finder.processIdentifier }, "sent to \(Set(tap.targets)), not Finder")
+            },
+            SelfTest.Case("system.sessionAndPower") { ctx in
+                // Opening power management is as far as Sleep can go without sleeping the Mac.
+                let port = IOPMFindPowerManagement(kIOMainPortDefault)
+                try ctx.expect(port != 0, "no power management connection")
+                IOServiceClose(port)
+                try ctx.expect(SystemApps.url(screenSaver) != nil, "no screen saver app")
+                try ctx.expect(SystemApps.url(siri) != nil, "no Siri app")
+            },
+        ]
+    }
+
+    /// Checks that recorded events hold a press of `key` with exactly `flags` among the modifiers.
+    private static func expectKey(_ events: [CGEvent], _ key: Int, _ flags: CGEventFlags, _ what: String, _ ctx: SelfTest.Context) throws {
+        let modifiers: CGEventFlags = [.maskControl, .maskAlternate, .maskShift, .maskCommand]
+        let down = events.first { $0.type == .keyDown && $0.getIntegerValueField(.keyboardEventKeycode) == Int64(key) }
+        try ctx.expect(down != nil, "\(what) sent no key \(key)")
+        try ctx.expect(down?.flags.intersection(modifiers) == flags.intersection(modifiers), "\(what) flags \(String(describing: down?.flags))")
+    }
+    #else
+    static var tests: [SelfTest.Case] {
+        sharedTests + [
             SelfTest.Case("system.privateCallsResolve") { ctx in
                 let calls: [(String, Bool)] = [
                     ("CoreDockSendNotification", Dock.sendNotification != nil),
@@ -151,11 +303,6 @@ enum SystemActions {
                 ]
                 let missing = calls.filter { !$0.1 }.map(\.0)
                 try ctx.expect(missing.isEmpty, "missing: \(missing.joined(separator: ", "))")
-            },
-            SelfTest.Case("system.everyActionHasABehavior") { ctx in
-                let ids = ActionCatalog.categories.flatMap(\.actions).map(\.id).filter { behaviors[$0] != nil }
-                try ctx.expect(ids.count == behaviors.count, "behaviors for ids not in the catalog: \(Set(behaviors.keys).subtracting(ids).sorted())")
-                ctx.note("\(ids.count) actions")
             },
             SelfTest.Case("desktop.missionControlFamily") { ctx in
                 // Each would cover the screen, so this stops at the call and the fallback apps.
@@ -273,19 +420,6 @@ enum SystemActions {
                 try ctx.expect(Dock.autoHides == hides, "changed")
                 ctx.note("hiding \(hides ? "on" : "off")")
             },
-            SelfTest.Case("system.keepAwake") { ctx in
-                try ctx.expect(!KeepAwake.isOn, "already on")
-                let behavior = try unwrap(ActionBehaviors.behavior(for: "system.keepAwake"), ctx, "missing")
-                try behavior.run?(.current)
-                defer { try? KeepAwake.set(false) }
-                try ctx.expect(behavior.isOn?(.current) == true, "not on")
-                var byProcess: Unmanaged<CFDictionary>?
-                IOPMCopyAssertionsByProcess(&byProcess)
-                let mine = (byProcess?.takeRetainedValue() as? [NSNumber: [[String: Any]]])?[NSNumber(value: getpid())] ?? []
-                try ctx.expect(mine.contains { $0["AssertType"] as? String == "PreventUserIdleDisplaySleep" }, "no assertion held")
-                try behavior.run?(.current)
-                try ctx.expect(behavior.isOn?(.current) == false, "still on")
-            },
             SelfTest.Case("system.wifi") { ctx in
                 guard let interface = WiFi.interface else { try ctx.skip("no Wi-Fi interface") }
                 let on = try unwrap(WiFi.isOn, ctx, "power unreadable")
@@ -336,19 +470,9 @@ enum SystemActions {
                 try ctx.expect(available == !Session.sleepIsDisabled, "sleep availability")
                 ctx.note("sleep \(Session.sleepIsDisabled ? "disabled system-wide, so Sleep is unavailable" : "allowed")")
             },
-            SelfTest.Case("system.colorPickerHex") { ctx in
-                try ctx.expect(ColorPicker.hex(NSColor(srgbRed: 1, green: 0.5, blue: 0, alpha: 1)) == "#FF8000", "orange")
-                try ctx.expect(ColorPicker.hex(NSColor(white: 1, alpha: 1)) == "#FFFFFF", "white")
-                let p3 = ColorPicker.hex(NSColor(displayP3Red: 0, green: 0, blue: 1, alpha: 1))
-                try ctx.expect(p3 == "#0000FF", "Display P3 blue converts to \(p3)")
-                try ctx.preservingClipboard {
-                    ColorPicker.copy("#123ABC")
-                    try ctx.expect(NSPasteboard.general.string(forType: .string) == "#123ABC", "clipboard")
-                }
-                try ctx.expect(NSClassFromString("NSColorSampler") != nil, "no NSColorSampler")
-            },
         ]
     }
+    #endif
 
     private static func unwrap<T>(_ value: T?, _ ctx: SelfTest.Context, _ message: String) throws -> T {
         guard let value else { throw SelfTest.Failure(message: message) }

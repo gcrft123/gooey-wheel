@@ -1,5 +1,8 @@
 import CoreGraphics
 
+// Only Move Window's Accessibility path in the direct download places windows itself.
+#if !APPSTORE
+
 /// Where the window actions put a window, worked out from rectangles alone so the math can be
 /// checked against made-up screens. Frames are in AppKit screen coordinates (origin at the
 /// bottom left of the primary screen, y going up) unless a name says otherwise.
@@ -129,3 +132,4 @@ enum WindowGeometry {
             && abs(a.width - b.width) <= tolerance && abs(a.height - b.height) <= tolerance
     }
 }
+#endif

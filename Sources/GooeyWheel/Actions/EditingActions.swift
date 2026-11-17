@@ -182,9 +182,14 @@ enum EditingActions {
 /// effect would be visible.
 final class EventRecorder {
     var events: [CGEvent] = []
+    /// The process each event was sent to, or nil for one posted to the system.
+    var targets: [pid_t?] = []
 
     init() {
-        KeySender.recorder = { [weak self] in self?.events.append($0) }
+        KeySender.recorder = { [weak self] event, pid in
+            self?.events.append(event)
+            self?.targets.append(pid)
+        }
     }
 
     func stop() {

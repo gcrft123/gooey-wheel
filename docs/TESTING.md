@@ -26,6 +26,26 @@ The `catalog.*` checks run everywhere. They fail if a catalog action has no beha
 
 Each action file adds checks in a `tests` list, gathered in `SelfTest.cases` in `Actions/SelfTest.swift`.
 
+`apps.ejectOneProbe` unmounts the volume mounted at `GOOEY_EJECT_PROBE`, and skips when it isn't set. Eject All Disks would eject the user's disks, so this checks the unmount on a disk image made for it:
+
+```sh
+hdiutil create -size 4m -fs APFS -volname GooeyProbe /tmp/probe.dmg
+hdiutil attach -nobrowse -mountpoint /tmp/probe /tmp/probe.dmg
+GOOEY_EJECT_PROBE=/tmp/probe "$bin" --self-test apps.ejectOneProbe
+```
+
+### The App Store edition
+
+The App Store edition's self-test leaves out the checks for actions it doesn't have and adds checks of the shortcuts it sends. Its window checks send Minimize, Full Screen and Close to a panel of its own, and compare the tiling shortcuts with the ones AppKit puts in its Window menu. The halves are the window server's shortcuts, which only a press through the system reaches, so they are recorded rather than sent.
+
+To run it in the App Sandbox with its own grants, build `scripts/build-mas.sh --local` (bundle id `dev.gooey.wheel.local`) and launch it through `open`, which makes it its own responsible process. Run from a shell, the binary gets the terminal's grants instead.
+
+```sh
+open -n -W --stdout /tmp/out.txt --stderr /tmp/err.txt "build/App Store/local/Gooey Wheel.app" --args --self-test
+```
+
+`open --env NAME=value` passes `GOOEY_EJECT_PROBE` and `GOOEY_APP_PROBE`. `desktop.otherAppHideAndActivate` hides and brings forward the app at `GOOEY_APP_PROBE`, such as a stay-open applet made with `osacompile -s`, then gives the focus back; the sandbox refuses the hiding. Look for sandbox denials with `/usr/bin/log show --last 10m --predicate 'eventMessage CONTAINS "deny" AND eventMessage CONTAINS "GooeyWheel"' --style compact`.
+
 ## Running one action
 
 ```sh
@@ -80,7 +100,7 @@ screencapture -v -V 11 -R "$("$bin" --demo-stage-rect)" demo.mov
 
 ### Off-screen captures
 
-`--demo-capture <folder>` writes an image of every named moment of the script into the folder and quits. Nothing appears on screen: the demo's window is placed behind the desktop picture, and each image is a capture of that window alone. It works with the screen locked.
+`--demo-capture <folder>` writes an image of every named moment of the script into the folder and quits. Nothing appears on screen: the demo's window is placed behind the desktop picture, and each image is a capture of that window alone. It works with the screen locked. The direct download captures with `screencapture`, the App Store edition with ScreenCaptureKit; both need Screen Recording for the app or terminal that runs them.
 
 ```sh
 "$bin" --demo-script configure --demo-capture /tmp/frames
@@ -99,7 +119,9 @@ When a change affects motion, look at the changed stretch frame by frame, not at
 | `--welcome-preview <folder>` | An image of each welcome panel page, without showing the panel |
 | `--welcome-record <folder>` | The whole welcome panel frame by frame, from opening to closing, with a drawn pointer pressing its buttons |
 | `--toast-preview <folder>` | Shows sample messages in the bottom-right corner of the screen and writes images of them |
-| `--render-icon <path>` | Renders the app icon with the goo shader. `scripts/build-app.sh` runs this for `assets/icon.png` |
+
+The App Store edition doesn't have `--welcome-preview`, `--welcome-record` or `--toast-preview`, which run `screencapture`.
+| `--render-icon-layers <folder>` | Renders the app icon's two layers, `bubbles.png` and `droplet.png`, with the goo shader. `scripts/render-icon-layers.sh` runs this for `assets/AppIcon.icon` |
 
 ### The welcome video
 

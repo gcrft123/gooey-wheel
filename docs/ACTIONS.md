@@ -98,3 +98,34 @@
 | Natural Scrolling | Mouse | | Toggle | Flips scroll direction |
 | Easy-Switch | Mouse | | Picker: the mouse's paired computers | Switches a compatible Logitech mouse to the chosen device |
 | Mouse Battery | Mouse | | Readout | Shows the mouse's battery state. Works with Logitech, Apple, and Bluetooth mice |
+
+## App Store edition
+
+The App Store edition runs in the App Sandbox and uses public interfaces only, so it leaves some actions out and does others differently. The sandbox doesn't allow Accessibility on other apps, so nothing reads or moves another app's windows or presses its menu items; the window actions send shortcuts to the app in front instead. Saved wheels that use a left-out action keep the item and its name, with no action.
+
+| Left out | Why |
+| --- | --- |
+| Stage Manager, Do Not Disturb, Dark Mode, Brightness, Keyboard Brightness, Natural Scrolling | They need private interfaces |
+| Wi-Fi | The sandbox doesn't allow turning Wi-Fi on or off |
+| Notification Center, Control Center, Dictation, Restart, Shut Down | They work by pressing another app's menu items |
+| Display Off, Shell Command, AppleScript | They run programs. Run Shortcut stands in, since a shortcut can run a shell script or an AppleScript |
+| Switch User | No public interface |
+| Quit an App | The sandbox refuses a request to quit another app |
+| Next Display | Moving another app's window needs Accessibility |
+
+| Action | Difference |
+| --- | --- |
+| Mission Control, Apps | Opens Mission Control.app or Apps.app |
+| App Exposé, Show Desktop, Space Left, Space Right, Spotlight, Emoji & Symbols, Lock Screen, Log Out, Force Quit, Screenshot | Sends Apple's default shortcut: ⌃↓, F11, ⌃←, ⌃→, ⌘Space, ⌃⌘Space, ⌃⌘Q, ⇧⌘Q, ⌥⌘⎋, and ⇧⌘4, ⇧⌘3, or ⌃⇧⌘4. Capture Window sends ⇧⌘4, then Space. A shortcut the user has changed or turned off doesn't work |
+| Move Window | Offers Maximize, Center and Restore only, through the system's tiling (Window → Move & Resize), which macOS 15 added. It sends the app in front Globe-Control-F (Fill), C (Center) or R (Return to Previous Size), which that app's Window menu runs. The halves' shortcuts belong to the window server, which takes them only from a keyboard's own Globe key, so sides and corners aren't offered. A saved Almost Maximize or Maximize Height becomes Maximize and Center Third becomes Center; other saved layouts keep their name and say they're unavailable. Unavailable on macOS 14. The wheel shows no preview of where the window goes |
+| Minimize, Full Screen, Close Window | Sends ⌘M, ⌃⌘F or ⌘W to the app in front, which acts on its front window. In apps with tabs, ⌘W closes the tab |
+| Hide App, Hide Others | Sends ⌘H or ⌥⌘H to the app in front |
+| Dock Hiding | Sends ⌥⌘D. It's a plain action, since whether the Dock hides can't be read |
+| Quit App | Sends ⌘Q to the focused app |
+| Empty Trash | Asks first, then brings Finder forward and sends it ⌥⇧⌘⌫, which empties the Trash without Finder asking again. Finder's own warning setting can't be read |
+| New Finder Window | Brings Finder forward and sends it ⌘N. The window opens where Finder's settings say |
+| Open File, Open Folder | The file or folder is chosen in the Open panel or dropped from Finder, and the item keeps a bookmark to it. The path can't be typed |
+| Run Shortcut | The shortcut's name is typed instead of picked from a list. Opens the Shortcuts app's `shortcuts://run-shortcut` link |
+| Play/Pause, Media Controls | The bubbles show no track name or play state |
+| Sleep | Is never dimmed, even when sleep is turned off for the whole system |
+

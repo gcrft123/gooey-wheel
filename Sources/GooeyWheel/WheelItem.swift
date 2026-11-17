@@ -79,13 +79,13 @@ struct WheelItem: Codable, Equatable, Identifiable {
         return action.symbol
     }
 
-    private static func standardized(_ path: String) -> String {
-        ((path as NSString).expandingTildeInPath as NSString).standardizingPath
+    private static func standardized(_ argument: String) -> String {
+        (UserHome.expand(ItemLocation.path(of: argument) ?? argument) as NSString).standardizingPath
     }
 
     /// Folders that Finder shows with an icon of their own.
     private static let folderSymbols: [String: String] = {
-        let home = NSHomeDirectory() as NSString
+        let home = UserHome.path as NSString
         return [
             home.appendingPathComponent("Downloads"): "arrow.down.circle.fill",
             home.appendingPathComponent("Desktop"): "menubar.dock.rectangle",
@@ -133,24 +133,51 @@ extension WheelItem {
         .action("desktop.missionControl"),
         .action("media.controls"),
         .action("media.volume"),
-        .folder("Controls", symbol: "switch.2", [
-            .action("media.mute"),
-            .action("system.micMute"),
-            .action("media.output"),
-            .action("system.doNotDisturb"),
-            .action("system.appearance"),
-            .action("system.keepAwake"),
-        ]),
+        controls,
         .action("system.screenshot"),
         .action(WheelActions.customize),
         .action("desktop.switchApps"),
-        .folder("Windows", symbol: "macwindow", [
-            .action("window.move", argument: "leftHalf"),
-            .action("window.move", argument: "rightHalf"),
-            .action("window.move", argument: "maximize"),
-            .action("window.move", argument: "center"),
-            .action("desktop.minimize"),
-            .action("desktop.fullScreen"),
-        ]),
+        windows,
     ]
+
+    #if APPSTORE
+    /// The App Store edition can't tile a window to a side, so its folder has Fill, Center and
+    /// Return to Previous Size from the system's tiling.
+    private static let windows = WheelItem.folder("Windows", symbol: "macwindow", [
+        .action("window.move", argument: "maximize"),
+        .action("window.move", argument: "center"),
+        .action("window.move", argument: "restore"),
+        .action("desktop.minimize"),
+        .action("desktop.fullScreen"),
+    ])
+
+    /// Do Not Disturb and Dark Mode need private interfaces, so the App Store edition has the
+    /// sound input and the color picker in their place.
+    private static let controls = WheelItem.folder("Controls", symbol: "switch.2", [
+        .action("media.mute"),
+        .action("system.micMute"),
+        .action("media.output"),
+        .action("media.input"),
+        .action("system.keepAwake"),
+        .action("system.colorPicker"),
+    ])
+    #else
+    private static let windows = WheelItem.folder("Windows", symbol: "macwindow", [
+        .action("window.move", argument: "leftHalf"),
+        .action("window.move", argument: "rightHalf"),
+        .action("window.move", argument: "maximize"),
+        .action("window.move", argument: "center"),
+        .action("desktop.minimize"),
+        .action("desktop.fullScreen"),
+    ])
+
+    private static let controls = WheelItem.folder("Controls", symbol: "switch.2", [
+        .action("media.mute"),
+        .action("system.micMute"),
+        .action("media.output"),
+        .action("system.doNotDisturb"),
+        .action("system.appearance"),
+        .action("system.keepAwake"),
+    ])
+    #endif
 }

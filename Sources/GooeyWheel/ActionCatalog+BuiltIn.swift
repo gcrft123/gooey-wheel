@@ -325,21 +325,7 @@ extension ActionCatalog {
                 parameter: .shortcut,
                 keywords: ["shortcuts", "workflow"]
             ),
-            ActionDefinition(
-                id: "automation.shell",
-                title: "Shell Command",
-                symbol: "terminal",
-                parameter: .shellCommand,
-                keywords: ["bash", "zsh", "script"]
-            ),
-            ActionDefinition(
-                id: "automation.appleScript",
-                title: "AppleScript",
-                symbol: "scroll.fill",
-                parameter: .appleScript,
-                keywords: ["osascript", "script"]
-            ),
-        ]),
+        ] + scripts),
         ActionCategory(id: "mouse", title: "Mouse", symbol: "computermouse", actions: [
             ActionDefinition(
                 id: "mouse.pointerSpeed",
@@ -392,11 +378,41 @@ extension ActionCatalog {
             ),
         ]),
     ]
+
+    /// Commands and AppleScripts, run as programs. The App Store edition can't run them, so it
+    /// leaves them out of the binary as well as the catalog.
+    #if APPSTORE
+    private static let scripts: [ActionDefinition] = []
+    #else
+    private static let scripts: [ActionDefinition] = [
+        ActionDefinition(
+            id: "automation.shell",
+            title: "Shell Command",
+            symbol: "terminal",
+            parameter: .shellCommand,
+            keywords: ["bash", "zsh", "script"]
+        ),
+        ActionDefinition(
+            id: "automation.appleScript",
+            title: "AppleScript",
+            symbol: "scroll.fill",
+            parameter: .appleScript,
+            keywords: ["osascript", "script"]
+        ),
+    ]
+    #endif
 }
 
 /// The places Move Window puts the front window, as fractions of the screen's visible area.
 enum WindowLayout {
-    static let choices: [ActionChoice] = [
+    #if APPSTORE
+    /// Those the system's tiling has a shortcut the app in front matches (see WindowTiling).
+    static let choices = all.filter { choice in WindowTiling.keys.contains { $0.layout == choice.id } }
+    #else
+    static let choices = all
+    #endif
+
+    static let all: [ActionChoice] = [
         ActionChoice(id: "leftHalf", title: "Left Half", symbol: "inset.filled.lefthalf.rectangle"),
         ActionChoice(id: "rightHalf", title: "Right Half", symbol: "inset.filled.righthalf.rectangle"),
         ActionChoice(id: "topHalf", title: "Top Half", symbol: "inset.filled.tophalf.rectangle"),

@@ -2,6 +2,10 @@ import AppKit
 import Carbon.HIToolbox
 import QuartzCore
 import simd
+#if APPSTORE
+import ScreenCaptureKit
+import UniformTypeIdentifiers
+#endif
 
 /// Borderless panel that covers one screen while the wheel is up. It takes clicks without
 /// activating the app, so the frontmost app keeps its focus.
@@ -567,13 +571,51 @@ final class WheelController: NSObject {
         // sequence follow each other closely and need less.
         DispatchQueue.main.asyncAfter(deadline: .now() + (captureFrames == nil ? 0.15 : 0.03)) {
             self.advance(0)
-            self.writeCapture(named: name)
-            self.captureNext()
+            self.writeCapture(named: name) { self.captureNext() }
         }
     }
 
+    #if APPSTORE
+    /// Has ScreenCaptureKit capture this window alone, which works whatever is in front of it.
+    /// The App Store edition may not run screencapture.
+    private func writeCapture(named name: String, then next: @escaping () -> Void) {
+        guard let directory = captureDirectory else { return next() }
+        content.layoutSubtreeIfNeeded()
+        content.displayIfNeeded()
+        CATransaction.flush()
+        let id = CGWindowID(panel.windowNumber)
+        let scale = panel.backingScaleFactor
+        let size = panel.frame.size
+        let path = directory + "/" + name + ".png"
+        func finish(_ problem: String?) {
+            DispatchQueue.main.async {
+                if let problem { NSLog("Couldn't capture \(name): \(problem)") }
+                next()
+            }
+        }
+        SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: false) { content, error in
+            guard let window = content?.windows.first(where: { $0.windowID == id }) else {
+                return finish("window not found: \(String(describing: error))")
+            }
+            let configuration = SCStreamConfiguration()
+            configuration.width = Int(size.width * scale)
+            configuration.height = Int(size.height * scale)
+            configuration.showsCursor = false
+            configuration.ignoreShadowsSingleWindow = true
+            SCScreenshotManager.captureImage(contentFilter: SCContentFilter(desktopIndependentWindow: window), configuration: configuration) { image, error in
+                guard let image,
+                      let destination = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, UTType.png.identifier as CFString, 1, nil) else {
+                    return finish("\(String(describing: error))")
+                }
+                CGImageDestinationAddImage(destination, image, nil)
+                finish(CGImageDestinationFinalize(destination) ? nil : "couldn't write \(path)")
+            }
+        }
+    }
+    #else
     /// Has the system capture this window alone, which works whatever is in front of it.
-    private func writeCapture(named name: String) {
+    private func writeCapture(named name: String, then next: () -> Void) {
+        defer { next() }
         guard let directory = captureDirectory else { return }
         content.layoutSubtreeIfNeeded()
         content.displayIfNeeded()
@@ -588,6 +630,7 @@ final class WheelController: NSObject {
             NSLog("Couldn't capture \(name): \(error)")
         }
     }
+    #endif
 
     // MARK: Frame loop
 

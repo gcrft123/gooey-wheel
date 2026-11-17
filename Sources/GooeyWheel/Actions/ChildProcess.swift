@@ -1,5 +1,8 @@
 import AppKit
 
+// Spawns programs, which only actions the App Store edition leaves out do.
+#if !APPSTORE
+
 /// A program run to completion in the background, with what it printed. It runs in a process
 /// group of its own, so a time limit stops whatever it started as well, not only the program.
 struct ChildProcess {
@@ -158,3 +161,4 @@ struct ChildProcess {
         }
     }
 }
+#endif

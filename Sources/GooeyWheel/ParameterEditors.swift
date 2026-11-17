@@ -34,7 +34,12 @@ class ParameterView: NSView {
     static func make(_ parameter: ActionParameter, value: String?, theme: EditorTheme) -> ParameterView {
         switch parameter {
         case .application: return AppPicker(value: value, theme: theme)
+        #if APPSTORE
+        // Listing shortcuts takes the shortcuts tool, which the App Sandbox doesn't run.
+        case .shortcut: return LineEditor(value: value, placeholder: "Shortcut name", theme: theme)
+        #else
         case .shortcut: return ShortcutPicker(value: value, theme: theme)
+        #endif
         case .file: return PathEditor(folder: false, value: value, theme: theme)
         case .folder: return PathEditor(folder: true, value: value, theme: theme)
         case .url: return LineEditor(value: value, placeholder: "https://", theme: theme)
@@ -89,6 +94,7 @@ private final class AppPicker: ParameterView {
     override func focus() { picker.field.focus() }
 }
 
+#if !APPSTORE
 /// The shortcuts in the Shortcuts app, read from its command line tool.
 private final class ShortcutPicker: ParameterView {
     private let picker: SearchList
@@ -159,6 +165,7 @@ private final class ShortcutPicker: ParameterView {
 
     override func focus() { picker.field.focus() }
 }
+#endif
 
 // MARK: Text
 
@@ -255,11 +262,15 @@ private final class TextEditor: ParameterView, NSTextViewDelegate, EditorAnimate
 
 // MARK: Files
 
-/// A place to drop a file or folder from Finder, over a field for typing its path.
+/// A place to drop a file or folder from Finder, over a field for typing its path. In the App
+/// Store edition a click on the well or a folder opens the Open panel, and the field only shows
+/// the path: the sandboxed app reaches only what the user chose there or dropped.
 private final class PathEditor: ParameterView {
     private let folder: Bool
     private let field: WellField
-    private var path: String?
+    /// The item's argument: the path, and in the App Store edition its bookmark.
+    private var value: String?
+    private var path: String? { ItemLocation.path(of: value) }
     private var hovering = false
     /// Folders offered with one click, for an action that opens a folder.
     private static let places: [(title: String, path: String)] = [
@@ -272,8 +283,11 @@ private final class PathEditor: ParameterView {
         self.folder = folder
         field = WellField(theme: theme, placeholder: folder ? "~/Folder" : "~/File", font: EditorTheme.mono, truncatesMiddle: true)
         super.init(theme: theme)
-        path = value
-        field.text = value ?? ""
+        self.value = value
+        field.text = ItemLocation.path(of: value) ?? ""
+        #if APPSTORE
+        field.field.isEditable = false
+        #endif
         field.onChange = { [weak self] in self?.set($0.isEmpty ? nil : $0, typed: true) }
         field.onReturn = { [weak self] in self?.onReturn?() }
         addSubview(field)
@@ -330,9 +344,39 @@ private final class PathEditor: ParameterView {
     override func mouseDown(with event: NSEvent) {}
 
     override func mouseUp(with event: NSEvent) {
-        guard let i = placeIndex(at: convert(event.locationInWindow, from: nil)) else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        #if APPSTORE
+        if let i = placeIndex(at: point) {
+            choose(startingIn: Self.places[i].path)
+        } else if well.contains(point) {
+            choose(startingIn: path)
+        }
+        #else
+        guard let i = placeIndex(at: point) else { return }
         set(Self.places[i].path, typed: false)
+        #endif
     }
+
+    #if APPSTORE
+    /// Opens the Open panel at `start`. For a folder, Open with nothing selected chooses the
+    /// folder the panel shows, so a preset folder is one more click.
+    private func choose(startingIn start: String?) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = !folder
+        panel.canChooseDirectories = folder
+        panel.allowsMultipleSelection = false
+        panel.treatsFilePackagesAsDirectories = false
+        panel.prompt = "Choose"
+        if let start { panel.directoryURL = URL(fileURLWithPath: UserHome.expand(start), isDirectory: true) }
+        // The wheel's panel floats above other windows, and the Open panel goes above it.
+        if let level = window?.level { panel.level = NSWindow.Level(rawValue: level.rawValue + 1) }
+        NSApp.activate()
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            self?.set(ItemLocation(chosen: url).argument, typed: false)
+        }
+    }
+    #endif
 
     override func demoPoint(_ name: String) -> CGPoint? {
         if let i = Self.places.firstIndex(where: { $0.title == name }) {
@@ -343,8 +387,8 @@ private final class PathEditor: ParameterView {
     }
 
     private func set(_ value: String?, typed: Bool) {
-        path = value
-        if !typed { field.text = value ?? "" }
+        self.value = value
+        if !typed { field.text = ItemLocation.path(of: value) ?? "" }
         needsDisplay = true
         onChange?(value)
     }
@@ -352,7 +396,7 @@ private final class PathEditor: ParameterView {
     /// The file's own icon when the path leads somewhere of the right kind.
     private var icon: NSImage? {
         guard let path else { return nil }
-        let expanded = (path as NSString).expandingTildeInPath
+        let expanded = UserHome.expand(path)
         var isFolder: ObjCBool = false
         guard FileManager.default.fileExists(atPath: expanded, isDirectory: &isFolder) else { return nil }
         let bundle = expanded.hasSuffix(".app")
@@ -373,10 +417,10 @@ private final class PathEditor: ParameterView {
         outline.setLineDash([1, 7], count: 2, phase: 0)
         outline.stroke()
         if folder {
-            let current = path.map { ($0 as NSString).expandingTildeInPath }
+            let current = path.map(UserHome.expand)
             for (i, entry) in Self.places.enumerated() {
                 let rect = place(i)
-                let chosen = current == (entry.path as NSString).expandingTildeInPath
+                let chosen = current == UserHome.expand(entry.path)
                 (chosen ? theme.accent : theme.well).setFill()
                 if placeHover == i, !chosen { theme.well.withAlphaComponent(min(theme.well.alphaComponent * 2, 1)).setFill() }
                 NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2).fill()
@@ -425,7 +469,12 @@ private final class PathEditor: ParameterView {
             needsDisplay = true
             return false
         }
-        set((url.path as NSString).abbreviatingWithTildeInPath, typed: false)
+        #if APPSTORE
+        // A drop from Finder lets the app reach the item, long enough to bookmark it.
+        set(ItemLocation(chosen: url).argument, typed: false)
+        #else
+        set(UserHome.abbreviate(url.path), typed: false)
+        #endif
         return true
     }
 

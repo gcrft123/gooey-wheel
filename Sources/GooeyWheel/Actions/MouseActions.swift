@@ -22,15 +22,20 @@ enum MouseActions {
         { MouseLink.shared.has(feature) }
     }
 
-    static let behaviors: [String: ActionBehavior] = [
-        "mouse.pointerSpeed": pointerSpeed,
-        "mouse.precision": precision,
-        "mouse.smartShift": freeSpin,
-        "mouse.haptics": haptics,
-        "mouse.scrollDirection": naturalScrolling,
-        "device.easySwitch": easySwitch,
-        "device.battery": battery,
-    ]
+    static let behaviors: [String: ActionBehavior] = {
+        var map = [
+            "mouse.pointerSpeed": pointerSpeed,
+            "mouse.precision": precision,
+            "mouse.smartShift": freeSpin,
+            "mouse.haptics": haptics,
+            "device.easySwitch": easySwitch,
+            "device.battery": battery,
+        ]
+        #if !APPSTORE
+        map["mouse.scrollDirection"] = naturalScrolling
+        #endif
+        return map
+    }()
 
     // MARK: Pointer speed
 
@@ -176,11 +181,13 @@ enum MouseActions {
 
     // MARK: Scroll direction
 
+    #if !APPSTORE
     private static var naturalScrolling: ActionBehavior {
         var behavior = ActionBehavior(run: { _ in try NaturalScrolling.set(!NaturalScrolling.isOn) })
         behavior.isOn = { _ in NaturalScrolling.isOn }
         return behavior
     }
+    #endif
 
     // MARK: Easy-Switch
 
@@ -381,7 +388,7 @@ enum MouseActions {
                 let speed = behavior("mouse.pointerSpeed")
                 let level = try quickly(ctx, "pointer speed read") { speed.level?.read() }
                 if let level, let format = speed.level?.format { ctx.note(format(level)) }
-                for id in ["mouse.precision", "mouse.smartShift", "mouse.haptics", "mouse.scrollDirection"] {
+                for id in ["mouse.precision", "mouse.smartShift", "mouse.haptics", "mouse.scrollDirection"] where ActionBehaviors.behavior(for: id) != nil {
                     let on = try quickly(ctx, "\(id) isOn") { behavior(id).isOn?(.current) }
                     ctx.note("\(id.split(separator: ".").last!) \(on.map { $0 ? "on" : "off" } ?? "unknown")")
                 }
@@ -482,15 +489,6 @@ enum MouseActions {
                 MouseLink.shared.call(HIDPPFeature.haptic, 1) { answered = $0 != nil }
                 try ctx.expect(ctx.wait(upTo: 2, until: { answered }), "the mouse stopped answering after the tick")
             },
-            SelfTest.Case("mouse.naturalScrollingWritesCurrentValue") { ctx in
-                let before = NaturalScrolling.isOn
-                ctx.note(before ? "on" : "off")
-                // Writes the value it already has, which changes nothing.
-                try NaturalScrolling.set(before)
-                try ctx.expect(NaturalScrolling.isOn == before, "changed")
-                let global = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)?["com.apple.swipescrolldirection"] as? Bool
-                try ctx.expect(global == nil || global == before, "the global default says \(String(describing: global))")
-            },
             SelfTest.Case("device.easySwitchNeverChoosesTheCurrentHost") { ctx in
                 let mouse = try connect(ctx)
                 guard MouseLink.shared.has(HIDPPFeature.changeHost) else { try ctx.skip("no Easy-Switch") }
@@ -509,13 +507,24 @@ enum MouseActions {
                 let index = try ctx.expectValue(mouse.features[HIDPPFeature.changeHost], "no index")
                 try ctx.expect(sent.count == 1 && Array(sent[0].prefix(5)) == [0x11, mouse.index, index, 0x1B, 0x01], "request \(sent.first?.prefix(5).map { String(format: "%02x", $0) } ?? [])")
             },
+        ] + naturalScrollingTests
+    }
+
+    #if APPSTORE
+    private static let naturalScrollingTests: [SelfTest.Case] = []
+    #else
+    private static var naturalScrollingTests: [SelfTest.Case] {
+        [
+            SelfTest.Case("mouse.naturalScrollingWritesCurrentValue") { ctx in
+                let before = NaturalScrolling.isOn
+                ctx.note(before ? "on" : "off")
+                // Writes the value it already has, which changes nothing.
+                try NaturalScrolling.set(before)
+                try ctx.expect(NaturalScrolling.isOn == before, "changed")
+                let global = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)?["com.apple.swipescrolldirection"] as? Bool
+                try ctx.expect(global == nil || global == before, "the global default says \(String(describing: global))")
+            },
         ]
     }
-}
-
-private extension SelfTest.Context {
-    func expectValue<T>(_ value: T?, _ message: @autoclosure () -> String) throws -> T {
-        guard let value else { throw SelfTest.Failure(message: message()) }
-        return value
-    }
+    #endif
 }

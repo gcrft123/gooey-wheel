@@ -1,12 +1,44 @@
 import AppKit
+import Carbon.HIToolbox
 
-/// Window and app actions: moving, minimizing, full screen and closing the window in front
-/// through the Accessibility API, and switching, hiding and quitting apps.
+/// Window and app actions: moving, minimizing, full screen and closing the window in front,
+/// and switching, hiding and quitting apps. The direct download reaches the window through the
+/// Accessibility API; the App Store edition, which the sandbox keeps out of other apps' windows,
+/// sends the system's and the app's shortcuts instead.
 enum WindowActions {
     static let behaviors: [String: ActionBehavior] = {
         // Previous App needs the activation order from as early as possible.
         _ = AppHistory.shared
-        return [
+        var map = shared
+        #if APPSTORE
+        map.merge(byKeys) { $1 }
+        #else
+        map.merge(byAccessibility) { $1 }
+        #endif
+        return map
+    }()
+
+    #if APPSTORE
+    /// Each sent to the app in front as a press of its keys. Minimize, Close and Hide are
+    /// the standard menu shortcuts of Mac apps, and ⌃⌘F is full screen's.
+    private static let byKeys: [String: ActionBehavior] = [
+        "window.move": WindowTiling.behavior,
+        "desktop.minimize": .keys(KeyCombo.character("m", .maskCommand) ?? KeyCombo(kVK_ANSI_M, .maskCommand)),
+        "desktop.fullScreen": .keys(KeyCombo.character("f", [.maskControl, .maskCommand]) ?? KeyCombo(kVK_ANSI_F, [.maskControl, .maskCommand])),
+        "desktop.closeWindow": .keys(KeyCombo.character("w", .maskCommand) ?? KeyCombo(kVK_ANSI_W, .maskCommand)),
+        // The sandbox refuses hiding another app, so the app in front hides itself, or the others.
+        "desktop.hideApp": ActionBehavior(run: { invocation in
+            guard let app = frontmost(invocation) else { throw ActionError.failed("No app is in front") }
+            if app == .current {
+                NSApp.hide(nil)
+            } else {
+                try KeySender.post(KeyCombo.character("h", .maskCommand) ?? KeyCombo(kVK_ANSI_H, .maskCommand))
+            }
+        }),
+        "desktop.hideOthers": .keys(KeyCombo.character("h", [.maskAlternate, .maskCommand]) ?? KeyCombo(kVK_ANSI_H, [.maskAlternate, .maskCommand])),
+    ]
+    #else
+    private static let byAccessibility: [String: ActionBehavior] = [
             "window.move": ActionBehavior(run: { invocation in
                 try move(invocation.argument ?? WindowLayout.choices[0].id, invocation: invocation)
             }),
@@ -28,6 +60,10 @@ enum WindowActions {
             "desktop.nextDisplay": ActionBehavior(isAvailable: { NSScreen.screens.count > 1 }, run: { invocation in
                 try moveToNextDisplay(invocation)
             }),
+    ]
+    #endif
+
+    private static let shared: [String: ActionBehavior] = [
             "desktop.switchApps": previousApp,
             "desktop.hideApp": ActionBehavior(run: { invocation in
                 guard let app = frontmost(invocation) else { throw ActionError.failed("No app is in front") }
@@ -53,11 +89,17 @@ enum WindowActions {
                 guard let pid = AppSwitching.appToQuit(frontmost: frontmost(invocation)?.processIdentifier, exclude: getpid()),
                       let app = NSRunningApplication(processIdentifier: pid)
                 else { throw ActionError.failed("No app to quit") }
+                #if APPSTORE
+                // The sandbox refuses a request to quit another app, so the app gets ⌘Q itself.
+                try KeySender.requireTrust()
+                let quit = KeyCombo.character("q", .maskCommand) ?? KeyCombo(kVK_ANSI_Q, .maskCommand)
+                KeySender.whenModifiersReleased { KeySender.post(KeySender.events(for: quit), to: pid) }
+                #else
                 // Asks the app to quit as ⌘Q would, so it can ask to save. Never forced.
                 app.terminate()
+                #endif
             }),
-        ]
-    }()
+    ]
 
     private static func frontmost(_ invocation: ActionInvocation) -> NSRunningApplication? {
         invocation.frontmost ?? NSWorkspace.shared.frontmostApplication
@@ -89,6 +131,7 @@ enum WindowActions {
         return behavior
     }
 
+    #if !APPSTORE
     // MARK: Moving
 
     /// What Move Window remembers about a window it moved.
@@ -125,8 +168,7 @@ enum WindowActions {
         else { return nil }
         let screens = NSScreen.screens
         guard let index = WindowGeometry.screenIndex(for: frame, among: screens.map(\.frame)) else { return nil }
-        // The window's number is read only when there's a record that could match it.
-        let record = history.keys.contains { $0.pid == window.pid } ? window.key.flatMap { history[$0] } : nil
+        let record = history[window.key]
         return plan(layoutID, window: frame, visible: screens[index].visibleFrame, record: record)?.frame
     }
 
@@ -137,7 +179,7 @@ enum WindowActions {
         }
         if window.isFullScreen == true { throw ActionError.failed("The window is in full screen") }
         let key = window.key
-        let record = key.flatMap { history[$0] }
+        let record = history[key]
         guard let plan = plan(layout, window: frame, visible: visible, record: record) else {
             throw ActionError.failed(layout == "restore" ? "Nothing to restore" : "Unknown layout \(layout)")
         }
@@ -146,7 +188,6 @@ enum WindowActions {
             ? (WindowGeometry.screenIndex(for: plan.frame, among: NSScreen.screens.map(\.frame)).map { NSScreen.screens[$0].visibleFrame } ?? visible)
             : visible
         window.setFrame(plan.frame, within: target)
-        guard let key else { return }
         if layout == "restore" {
             history[key] = nil
         } else {
@@ -182,4 +223,44 @@ enum WindowActions {
             throw ActionError.failed("The window can't go full screen")
         }
     }
+    #endif
 }
+
+#if APPSTORE
+/// Move Window through the system's tiling, which macOS 15 put in every app's Window → Move &
+/// Resize menu. Fill, Center and Return to Previous Size are key equivalents of that menu, so
+/// their Globe-Control shortcuts go straight to the app in front, which runs the menu item.
+/// The halves aren't offered: their shortcuts are the window server's, which tells them from
+/// Spaces' Control-arrows by the keyboard's own Globe key, and no event an app posts carries it.
+enum WindowTiling {
+    static var isSupported: Bool {
+        ProcessInfo.processInfo.isOperatingSystemAtLeast(OperatingSystemVersion(majorVersion: 15, minorVersion: 0, patchVersion: 0))
+    }
+
+    /// Fill, Center and Return to Previous Size stand in for Maximize, Center and Restore.
+    static let keys: [(layout: String, combo: KeyCombo)] = [
+        ("maximize", KeyCombo.character("f", [.maskControl, .maskSecondaryFn]) ?? KeyCombo(kVK_ANSI_F, [.maskControl, .maskSecondaryFn])),
+        ("center", KeyCombo.character("c", [.maskControl, .maskSecondaryFn]) ?? KeyCombo(kVK_ANSI_C, [.maskControl, .maskSecondaryFn])),
+        ("restore", KeyCombo.character("r", [.maskControl, .maskSecondaryFn]) ?? KeyCombo(kVK_ANSI_R, [.maskControl, .maskSecondaryFn])),
+    ]
+
+    static var behavior: ActionBehavior {
+        var behavior = ActionBehavior(isAvailable: { isSupported }) { invocation in
+            try move(invocation.argument ?? keys[0].layout, in: invocation.frontmost)
+        }
+        behavior.unavailableMessage = "Move Window needs macOS 15 or later"
+        return behavior
+    }
+
+    static func move(_ layout: String, in app: NSRunningApplication?) throws {
+        guard isSupported else { throw ActionError.unavailable("Move Window needs macOS 15 or later") }
+        guard let combo = keys.first(where: { $0.layout == layout })?.combo else {
+            throw ActionError.unavailable("The App Store version can only fill, center, or restore a window")
+        }
+        guard let app else { throw ActionError.failed("No app is in front") }
+        try KeySender.requireTrust()
+        // Option or Command still held from the wheel's shortcut would make it another one.
+        KeySender.whenModifiersReleased { KeySender.post(KeySender.events(for: combo), to: app.processIdentifier) }
+    }
+}
+#endif

@@ -232,7 +232,7 @@ extension MouseButtonTap {
                 try ctx.expect(tap.handle(.otherMouseDown, left) != nil, "button 0 taken")
             },
             SelfTest.Case("mouse.eventTapInstalls") { ctx in
-                guard AXIsProcessTrusted() else { try ctx.skip("Accessibility not granted") }
+                guard Permissions.canPostEvents else { try ctx.skip("Accessibility not granted") }
                 // Button 31 is on no mouse, so the tap passes every real event on.
                 let tap = MouseButtonTap()
                 tap.button = 31
@@ -254,12 +254,5 @@ extension MouseButtonTap {
                 try ctx.expect(!tap.isCapturing, "still capturing")
             },
         ]
-    }
-}
-
-private extension SelfTest.Context {
-    func expectValue<T>(_ value: T?, _ message: @autoclosure () -> String) throws -> T {
-        guard let value else { throw SelfTest.Failure(message: message()) }
-        return value
     }
 }

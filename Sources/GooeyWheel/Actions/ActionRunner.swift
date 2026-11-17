@@ -124,8 +124,7 @@ final class ActionRunner {
             if !askedForAccessibility {
                 askedForAccessibility = true
                 // Shows the system prompt and lists the app under Accessibility.
-                let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-                _ = AXIsProcessTrustedWithOptions(options)
+                Permissions.requestPostEvents()
             }
             ActionFeedback.failed("Allow Accessibility for Gooey Wheel")
             return
@@ -226,9 +225,14 @@ final class ActionRunner {
 
     /// Where Move Window would put the front window, in screen coordinates.
     func previewFrame(_ item: WheelItem) -> CGRect? {
+        #if APPSTORE
+        // Reading the front window's frame takes Accessibility on another app.
+        return nil
+        #else
         guard item.actionID == "window.move" else { return nil }
         let choice = ActionCatalog.action("window.move")?.choice(item.argument)?.id ?? "leftHalf"
         return WindowActions.targetFrame(for: choice, invocation: invocation(item))
+        #endif
     }
 
     func choices(_ item: WheelItem) -> [LiveChoice] {

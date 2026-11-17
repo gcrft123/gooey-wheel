@@ -1,3 +1,5 @@
+// The App Store edition gets its updates from the App Store.
+#if !APPSTORE
 import AppKit
 import Sparkle
 
@@ -65,3 +67,4 @@ final class Updater: NSObject, SPUStandardUserDriverDelegate, NSMenuItemValidati
         if #available(macOS 14.4, *) { menuItem.subtitle = nil }
     }
 }
+#endif

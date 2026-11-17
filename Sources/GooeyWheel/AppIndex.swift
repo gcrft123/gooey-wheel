@@ -35,7 +35,7 @@ final class AppIndex {
 
     private static func scan() -> [App] {
         let manager = FileManager.default
-        let home = manager.homeDirectoryForCurrentUser.path
+        let home = UserHome.path
         var found: [String: App] = [:]
         func add(_ url: URL) {
             guard let id = Bundle(url: url)?.bundleIdentifier, found[id] == nil else { return }
@@ -67,8 +67,8 @@ extension WheelItem {
             return AppIndex.shared.app(argument)?.name
         case .file, .folder:
             // The name Finder shows: the user's name for the home folder, "Trash" for ~/.Trash.
-            let path = (argument as NSString).expandingTildeInPath
-            if path == (NSHomeDirectory() as NSString).appendingPathComponent(".Trash") { return "Trash" }
+            let path = UserHome.expand(ItemLocation.path(of: argument) ?? argument)
+            if path == (UserHome.path as NSString).appendingPathComponent(".Trash") { return "Trash" }
             let name = FileManager.default.fileExists(atPath: path) ? FileManager.default.displayName(atPath: path) : (path as NSString).lastPathComponent
             return name.isEmpty ? nil : name
         case .url:

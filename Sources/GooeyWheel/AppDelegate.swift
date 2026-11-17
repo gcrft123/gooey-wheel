@@ -66,7 +66,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Set while the welcome panel's button page is up, which waits for presses throughout.
     private var welcomeListening = false
     private var welcomeTimer: Timer?
+    #if !APPSTORE
     private var updater: Updater?
+    #endif
 
     init(options: LaunchOptions) {
         self.options = options
@@ -110,12 +112,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         WheelActions.openConfiguration = { [weak self] in self?.customizeFromMenu() }
+        #if !APPSTORE
         updater = Updater.make()
+        #endif
         installStatusItem()
         // Previous App needs the order apps came forward in from the start.
         _ = AppHistory.shared
+        #if !APPSTORE
         // A system shortcut lent out for an action when the app last quit unexpectedly goes back.
         SymbolicHotKey.restoreInterrupted()
+        #endif
         TriggerDebug.wheelState = { [weak controller] in controller?.debugState ?? "" }
         TriggerDebug.start()
         if options.readsMouse { startButton() }
@@ -172,11 +178,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         logitech.onStatus = { [weak self] _ in self?.updateButtonState() }
         logitech.onNeedsRelaunch = {
             guard Bundle.main.bundleURL.pathExtension == "app" else { return }
-            let relaunch = Process()
-            relaunch.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            relaunch.arguments = ["-n", Bundle.main.bundleURL.path]
-            try? relaunch.run()
-            NSApp.terminate(nil)
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.createsNewApplicationInstance = true
+            NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { _, _ in
+                DispatchQueue.main.async { NSApp.terminate(nil) }
+            }
         }
         MouseLink.shared.use(logitech)
         logitech.start()
@@ -203,7 +209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.title = "Assign Button"
         item.action = #selector(assignButton)
         item.isEnabled = true
-        accessibilityItem?.isHidden = AXIsProcessTrusted()
+        accessibilityItem?.isHidden = KeySender.isTrusted
         updateWelcome()
         let assignHint = "Assign a mouse button in the menu bar"
         if waitingForPress {
@@ -377,7 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// press, after a wait times out, or once a permission or a Logitech mouse arrives.
     private func listenForWelcome() {
         guard welcomeListening, !waitingForPress else { return }
-        let standardIdle = AXIsProcessTrusted() && !standard.isCapturing
+        let standardIdle = KeySender.isTrusted && !standard.isCapturing
         let logitechIdle = logitech.canCapture && !logitech.isCapturing
         guard standardIdle || logitechIdle else { return }
         _ = capturePress(timeout: 600) { [weak self] pressed in
@@ -400,7 +406,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateWelcome(assigned: Bool = false) {
         guard let welcome else { return }
         var missing: [WelcomePanel.Permission] = []
-        if !AXIsProcessTrusted() { missing.append(.accessibility) }
+        if !KeySender.isTrusted { missing.append(.accessibility) }
         if logitech.status == .needsPermission { missing.append(.inputMonitoring) }
         let name: String?
         switch assignment {
@@ -461,7 +467,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hapticsItem = add("Haptic Feedback", #selector(toggleHaptics))
         accessibilityItem = add("Allow Accessibility for Actions…", #selector(openAccessibility))
         menu.addItem(.separator())
+        #if !APPSTORE
         if let updater { menu.addItem(updater.menuItem) }
+        #endif
         menu.addItem(NSMenuItem(title: "Quit Gooey Wheel", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         menu.delegate = self
         item.menu = menu
@@ -484,8 +492,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func openAccessibility() {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        if !AXIsProcessTrustedWithOptions(options),
+        if !Permissions.requestPostEvents(),
            let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
@@ -521,7 +528,7 @@ struct LaunchOptions {
     var stage: String?
     var timescale = 1.0
     var appearance: String?
-    var iconPath: String?
+    var iconLayersPath: String?
     var demoScript = DemoScript.wheel
     /// Script time at which the demo cursor freezes, for stills of one moment.
     var demoStopAt: Double?
@@ -558,7 +565,7 @@ struct LaunchOptions {
             case "--stage": stage = next ?? "dark"; i += 1
             case "--timescale": timescale = next.flatMap(Double.init) ?? 1; i += 1
             case "--appearance": appearance = next; i += 1
-            case "--render-icon": iconPath = next; i += 1
+            case "--render-icon-layers": iconLayersPath = next; i += 1
             case "--demo-script": demoScript = next.flatMap(DemoScript.init(rawValue:)) ?? .wheel; i += 1
             case "--reduce-motion": reduceMotion = true
             case "--accent": accent = next; i += 1

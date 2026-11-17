@@ -116,7 +116,7 @@ struct KeyLayout {
 /// Sends key presses to the app in front, as if typed.
 enum KeySender {
     /// Posting input into other apps needs Accessibility. Without it the system drops the events silently.
-    static var isTrusted: Bool { AXIsProcessTrusted() }
+    static var isTrusted: Bool { Permissions.canPostEvents }
 
     static func requireTrust() throws {
         guard isTrusted else { throw ActionError.needsAccessibility }
@@ -177,16 +177,17 @@ enum KeySender {
     /// Where events go. Tests send them to one process; in use they go through the system,
     /// so system-wide shortcuts such as ⇧⌘4 work too.
     static var target: pid_t?
-    /// Takes the events instead of posting them, for checks of actions whose effect would be
-    /// visible to whoever is using the Mac.
-    static var recorder: ((CGEvent) -> Void)?
+    /// Takes the events, and the process each was meant for, instead of posting them, for
+    /// checks of actions whose effect would be visible to whoever is using the Mac.
+    static var recorder: ((CGEvent, pid_t?) -> Void)?
 
-    static func post(_ events: [CGEvent]) {
+    /// Posts events, to one process when `app` is set, else as `target` says.
+    static func post(_ events: [CGEvent], to app: pid_t? = nil) {
         for event in events {
             if let recorder {
-                recorder(event)
-            } else if let target {
-                event.postToPid(target)
+                recorder(event, app ?? target)
+            } else if let pid = app ?? target {
+                event.postToPid(pid)
             } else {
                 event.post(tap: .cghidEventTap)
             }

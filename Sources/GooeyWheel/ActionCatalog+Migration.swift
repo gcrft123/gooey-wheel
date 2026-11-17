@@ -80,6 +80,12 @@ enum ActionMigration {
     /// Actions that kept their id but no longer take the argument they used to.
     private static let droppedArguments: Set<String> = ["system.appearance", "mouse.scrollDirection", "media.volume", "mouse.pointerSpeed"]
 
+    #if APPSTORE
+    private static let nearestTiledLayout: [String: String] = [
+        "centerThird": "center", "almostMaximize": "maximize", "maximizeHeight": "maximize",
+    ]
+    #endif
+
     /// The item with any retired action replaced. Folders are migrated item by item.
     static func migrate(_ item: WheelItem) -> WheelItem {
         var item = item
@@ -95,6 +101,24 @@ enum ActionMigration {
         } else if droppedArguments.contains(id) {
             item.argument = nil
         }
+        #if APPSTORE
+        // A layout close to Fill or Center becomes it. A side or a corner stays, and its bubble
+        // says it isn't available.
+        if item.actionID == "window.move", let argument = item.argument {
+            if let nearest = nearestTiledLayout[argument] {
+                item.argument = nearest
+            } else if !WindowLayout.choices.contains(where: { $0.id == argument }), item.customTitle?.isEmpty ?? true {
+                // Otherwise its title would be the first layout offered.
+                item.customTitle = WindowLayout.all.first { $0.id == argument }?.title
+            }
+        }
+        // An item from a wheel the other edition saved keeps its place and its name.
+        if let id = item.actionID, let title = ActionCatalog.leftOut[id] {
+            item.actionID = nil
+            item.argument = nil
+            if item.customTitle?.isEmpty ?? true { item.customTitle = title }
+        }
+        #endif
         return item
     }
 }

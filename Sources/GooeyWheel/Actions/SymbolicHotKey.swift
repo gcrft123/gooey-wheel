@@ -1,6 +1,9 @@
 import AppKit
 import Carbon.HIToolbox
 
+// SkyLight's symbolic hot key calls are private. The App Store edition posts the default key combinations instead.
+#if !APPSTORE
+
 /// The system's own keyboard shortcuts, such as Mission Control or Move Left a Space, as the
 /// window server holds them for this login session. Shortcuts are numbered; System Settings
 /// lists their names in KeyboardSettings.appex's DefaultShortcutsTable.xml.
@@ -219,3 +222,4 @@ enum SymbolicHotKey {
         return Value(character: 0xFFFF, key: UInt16(key), modifiers: UInt32(modifiers), enabled: true)
     }
 }
+#endif

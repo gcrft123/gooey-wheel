@@ -2,6 +2,16 @@ import AppKit
 
 /// Media actions: the play, next and previous keys, and what is playing.
 enum MediaActions {
+    #if APPSTORE
+    /// Presses a media key, which macOS hands to the app playing. What is playing can't be read
+    /// in the App Sandbox, so the bubbles show no track or play state.
+    private static func press(_ key: KeySender.SpecialKey) throws {
+        try KeySender.post(key)
+    }
+
+    private static let playing: Bool? = nil
+    private static let track: String? = nil
+    #else
     /// Presses a media key, which macOS hands to the app playing. Without the Accessibility
     /// permission the key can't be posted, and the now-playing helper sends the same command
     /// to that app instead. Otherwise the key goes first: it reaches apps that take media keys
@@ -13,13 +23,23 @@ enum MediaActions {
 
     private static var playing: Bool? { NowPlaying.shared.state?.playing }
     private static var track: String? { NowPlaying.shared.state?.track }
+    #endif
 
     static let behaviors: [String: ActionBehavior] = {
+        #if APPSTORE
+        let playKey = { try press(.play) }
+        let nextKey = { try press(.next) }
+        let previousKey = { try press(.previous) }
+        #else
         // From the first time the wheel looks up an action, so what is playing is known by
         // the time an item is hovered.
         NowPlaying.shared.start()
+        let playKey = { try press(.play, .togglePlayPause) }
+        let nextKey = { try press(.next, .next) }
+        let previousKey = { try press(.previous, .previous) }
+        #endif
 
-        var playPause = ActionBehavior(run: { _ in try press(.play, .togglePlayPause) })
+        var playPause = ActionBehavior(run: { _ in try playKey() })
         playPause.liveSymbol = { _ in playing.map { $0 ? "pause.fill" : "play.fill" } }
         playPause.liveDetail = { _ in track }
 
@@ -40,17 +60,17 @@ enum MediaActions {
         }
         controls.choose = { choice, _ in
             switch choice.id {
-            case "previous": try press(.previous, .previous)
-            case "next": try press(.next, .next)
-            default: try press(.play, .togglePlayPause)
+            case "previous": try previousKey()
+            case "next": try nextKey()
+            default: try playKey()
             }
         }
         controls.liveDetail = { _ in track }
 
         return [
             "media.playPause": playPause,
-            "media.next": ActionBehavior(run: { _ in try press(.next, .next) }),
-            "media.previous": ActionBehavior(run: { _ in try press(.previous, .previous) }),
+            "media.next": ActionBehavior(run: { _ in try nextKey() }),
+            "media.previous": ActionBehavior(run: { _ in try previousKey() }),
             "media.controls": controls,
         ]
     }()
@@ -85,6 +105,14 @@ enum MediaActions {
                 let missing = choices.map(\.symbol).filter { NSImage(systemSymbolName: $0, accessibilityDescription: nil) == nil }
                 try ctx.expect(missing.isEmpty, "missing symbols \(missing)")
             },
+        ] + nowPlayingTests
+    }
+
+    #if APPSTORE
+    private static let nowPlayingTests: [SelfTest.Case] = []
+    #else
+    private static var nowPlayingTests: [SelfTest.Case] {
+        [
             SelfTest.Case("media.nowPlayingReads") { ctx in
                 guard let library = NowPlaying.libraryURL else { try ctx.skip("the helper library isn't built next to the app") }
                 ctx.note(library.lastPathComponent)
@@ -113,6 +141,7 @@ enum MediaActions {
             },
         ]
     }
+    #endif
 
     /// The media key numbers in recorded events.
     private static func keys(_ events: [CGEvent]) -> [Int] {

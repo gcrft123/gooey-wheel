@@ -4,18 +4,25 @@ import Carbon.HIToolbox
 /// App and file actions: opening and quitting apps, opening files, folders, and links,
 /// Finder's windows and its commands on the selection, and ejecting disks.
 enum AppActions {
-    static let behaviors: [String: ActionBehavior] = [
+    static let behaviors: [String: ActionBehavior] = {
+        var map = shared
+        #if !APPSTORE
+        map["apps.quit"] = ActionBehavior { invocation in
+            try quitApp(try required(invocation, "No app is chosen"))
+        }
+        #endif
+        return map
+    }()
+
+    private static let shared: [String: ActionBehavior] = [
         "apps.open": ActionBehavior { invocation in
             try openApp(try required(invocation, "No app is chosen"))
         },
-        "apps.quit": ActionBehavior { invocation in
-            try quitApp(try required(invocation, "No app is chosen"))
-        },
         "apps.openFile": ActionBehavior { invocation in
-            open(try existingItem(invocation.argument))
+            try openItem(invocation.argument, inFinder: false)
         },
         "apps.openFolder": ActionBehavior { invocation in
-            openInFinder(try existingItem(invocation.argument))
+            try openItem(invocation.argument, inFinder: true)
         },
         "apps.openWebsite": ActionBehavior { invocation in
             try openLink(try required(invocation, "No link is set"))
@@ -75,6 +82,7 @@ enum AppActions {
         }
     }
 
+    #if !APPSTORE
     /// Asks every running copy of an app to quit, as its Quit menu item would. It may ask to
     /// save documents first. Never forced.
     static func quitApp(_ bundleID: String) throws {
@@ -85,38 +93,60 @@ enum AppActions {
             throw ActionError.failed("\(running[0].localizedName ?? bundleID) didn't take the request to quit")
         }
     }
+    #endif
 
     // MARK: Files and links
 
     /// The file or folder at a stored path, which may start with ~.
-    static func existingItem(_ path: String?) throws -> URL {
-        guard let path = path?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty else {
+    static func existingItem(_ argument: String?) throws -> URL {
+        guard let location = ItemLocation(argument: argument) else {
             throw ActionError.failed("No file or folder is chosen")
         }
-        let expanded = (path as NSString).expandingTildeInPath
-        guard FileManager.default.fileExists(atPath: expanded) else {
-            throw ActionError.failed("Nothing is at \(path) any more")
+        guard FileManager.default.fileExists(atPath: location.url.path) else {
+            throw ActionError.failed("Nothing is at \(location.path) any more")
         }
-        return URL(fileURLWithPath: expanded)
+        return location.url
+    }
+
+    /// Opens an item's file or folder. In the App Store edition the item's bookmark grants
+    /// access to it for as long as the opening takes.
+    private static func openItem(_ argument: String?, inFinder: Bool) throws {
+        #if APPSTORE
+        guard let location = ItemLocation(argument: argument) else { throw ActionError.failed("No file or folder is chosen") }
+        guard let url = location.startAccess() else {
+            throw ActionError.failed("Choose \((location.path as NSString).lastPathComponent) again in the item's action")
+        }
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            url.stopAccessingSecurityScopedResource()
+            throw ActionError.failed("Nothing is at \(location.path) any more")
+        }
+        let done = { url.stopAccessingSecurityScopedResource() }
+        #else
+        let url = try existingItem(argument)
+        let done = {}
+        #endif
+        if inFinder { openInFinder(url, then: done) } else { open(url, then: done) }
     }
 
     /// Opens a file in its default app, or a folder in Finder.
-    private static func open(_ url: URL) {
+    private static func open(_ url: URL, then done: @escaping () -> Void = {}) {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
         NSWorkspace.shared.open(url, configuration: configuration) { _, error in
+            done()
             if let error { report("Opening \(url.path)", error) }
         }
     }
 
     /// Opens a folder in a Finder window. A file or a package such as an app is shown
     /// selected in its folder instead, since opening it would launch it.
-    private static func openInFinder(_ url: URL) {
+    private static func openInFinder(_ url: URL, then done: @escaping () -> Void) {
         let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
         if values?.isDirectory == true, values?.isPackage != true {
-            open(url)
+            open(url, then: done)
         } else {
             NSWorkspace.shared.activateFileViewerSelecting([url])
+            done()
         }
     }
 
@@ -171,6 +201,16 @@ enum AppActions {
         }
     }
 
+    #if APPSTORE
+    /// Brings Finder forward and sends it ⌘N, which opens a window where Finder's settings say.
+    private static func newFinderWindow() {
+        do {
+            try FinderCommand.send(KeyCombo.character("n", .maskCommand) ?? KeyCombo(kVK_ANSI_N, .maskCommand))
+        } catch {
+            ActionFeedback.failed(ActionRunner.message(for: error))
+        }
+    }
+    #else
     /// Makes Finder open a new window on the home folder and come forward. The first time,
     /// macOS asks whether Gooey Wheel may control Finder. Without that, the home folder is
     /// opened instead, which brings forward a window already showing it.
@@ -184,9 +224,10 @@ enum AppActions {
     private static func newFinderWindow() {
         AutomationActions.appleScript(newFinderWindowScript).start { result in
             if case .success(let result) = result, result.succeeded { return }
-            DispatchQueue.main.async { open(URL(fileURLWithPath: NSHomeDirectory())) }
+            DispatchQueue.main.async { open(URL(fileURLWithPath: UserHome.path)) }
         }
     }
+    #endif
 
     static let finderID = "com.apple.finder"
 
@@ -280,6 +321,47 @@ enum AppActions {
         }
     }
 
+    #if APPSTORE
+    private static let quitTests: [SelfTest.Case] = []
+    #else
+    private static var quitTests: [SelfTest.Case] {
+        [SelfTest.Case("apps.openAndQuitAnApp") { ctx in
+            // A stay-open AppleScript applet with no Dock icon or windows, made for the check,
+            // opened in the background (the action itself also brings it to the front),
+            // then quit by the action.
+            let id = "dev.gooey.wheel.selftest.\(UUID().uuidString.prefix(8))"
+            // Launch Services doesn't look up apps by id in the temporary folder.
+            let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            let folder = caches.appendingPathComponent("dev.gooey.wheel.selftest-\(UUID().uuidString)")
+            let app = folder.appendingPathComponent("Quit Probe.app")
+            let lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+            defer {
+                _ = try? ChildProcess(executable: lsregister, arguments: ["-u", app.path], timeout: 10).run()
+                try? FileManager.default.removeItem(at: folder)
+            }
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let plist = app.appendingPathComponent("Contents/Info.plist").path
+            for step in [
+                ChildProcess(executable: "/usr/bin/osacompile", arguments: ["-s", "-o", app.path, "-e", "on idle\nreturn 60\nend idle"]),
+                ChildProcess(executable: "/usr/libexec/PlistBuddy", arguments: ["-c", "Add :CFBundleIdentifier string \(id)", "-c", "Add :LSUIElement bool true", plist]),
+                ChildProcess(executable: "/usr/bin/codesign", arguments: ["-s", "-", "--force", app.path]),
+                ChildProcess(executable: lsregister, arguments: ["-f", app.path]),
+            ] {
+                var step = step
+                step.timeout = 30
+                let result = try step.run()
+                if !result.succeeded { try ctx.skip("\((step.executable as NSString).lastPathComponent) failed: \(result.errorTail())") }
+            }
+            try ctx.expect(ctx.wait(upTo: 5, until: { appURL(id) != nil }), "Launch Services doesn't know \(id)")
+            try openApp(id, activates: false)
+            try ctx.expect(ctx.wait(upTo: 10, until: { NSRunningApplication.runningApplications(withBundleIdentifier: id).first?.isFinishedLaunching == true }), "didn't open")
+            let running = NSRunningApplication.runningApplications(withBundleIdentifier: id)
+            try ActionBehaviors.behavior(for: "apps.quit")?.run?(.current.with(argument: id))
+            try ctx.expect(ctx.wait(upTo: 10, until: { running.allSatisfy(\.isTerminated) }), "didn't quit")
+        }]
+    }
+    #endif
+
     // MARK: Checks
 
     static var tests: [SelfTest.Case] {
@@ -292,46 +374,15 @@ enum AppActions {
                 do { try ActionBehaviors.behavior(for: "apps.open")?.run?(.current.with(argument: "dev.gooey.no-such-app")) } catch { threw = true }
                 try ctx.expect(threw, "opening an app that isn't installed should fail")
                 // Asking an app that isn't running to quit is nothing to do.
+                #if !APPSTORE
                 try ActionBehaviors.behavior(for: "apps.quit")?.run?(.current.with(argument: "dev.gooey.no-such-app"))
+                #endif
             },
-            SelfTest.Case("apps.openAndQuitAnApp") { ctx in
-                // A stay-open AppleScript applet with no Dock icon or windows, made for the check,
-                // opened in the background (the action itself also brings it to the front),
-                // then quit by the action.
-                let id = "dev.gooey.wheel.selftest.\(UUID().uuidString.prefix(8))"
-                // Launch Services doesn't look up apps by id in the temporary folder.
-                let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-                let folder = caches.appendingPathComponent("dev.gooey.wheel.selftest-\(UUID().uuidString)")
-                let app = folder.appendingPathComponent("Quit Probe.app")
-                let lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
-                defer {
-                    _ = try? ChildProcess(executable: lsregister, arguments: ["-u", app.path], timeout: 10).run()
-                    try? FileManager.default.removeItem(at: folder)
-                }
-                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                let plist = app.appendingPathComponent("Contents/Info.plist").path
-                for step in [
-                    ChildProcess(executable: "/usr/bin/osacompile", arguments: ["-s", "-o", app.path, "-e", "on idle\nreturn 60\nend idle"]),
-                    ChildProcess(executable: "/usr/libexec/PlistBuddy", arguments: ["-c", "Add :CFBundleIdentifier string \(id)", "-c", "Add :LSUIElement bool true", plist]),
-                    ChildProcess(executable: "/usr/bin/codesign", arguments: ["-s", "-", "--force", app.path]),
-                    ChildProcess(executable: lsregister, arguments: ["-f", app.path]),
-                ] {
-                    var step = step
-                    step.timeout = 30
-                    let result = try step.run()
-                    if !result.succeeded { try ctx.skip("\((step.executable as NSString).lastPathComponent) failed: \(result.errorTail())") }
-                }
-                try ctx.expect(ctx.wait(upTo: 5, until: { appURL(id) != nil }), "Launch Services doesn't know \(id)")
-                try openApp(id, activates: false)
-                try ctx.expect(ctx.wait(upTo: 10, until: { NSRunningApplication.runningApplications(withBundleIdentifier: id).first?.isFinishedLaunching == true }), "didn't open")
-                let running = NSRunningApplication.runningApplications(withBundleIdentifier: id)
-                try ActionBehaviors.behavior(for: "apps.quit")?.run?(.current.with(argument: id))
-                try ctx.expect(ctx.wait(upTo: 10, until: { running.allSatisfy(\.isTerminated) }), "didn't quit")
-            },
+        ] + quitTests + [
             SelfTest.Case("apps.pathsExpandAndMustExist") { ctx in
                 let home = try existingItem("~")
-                try ctx.expect(home.path == NSHomeDirectory(), "~ → \(home.path)")
-                try ctx.expect(try existingItem("  ~/  ").path.hasPrefix(NSHomeDirectory()), "spaces around a path")
+                try ctx.expect(home.path == UserHome.path, "~ → \(home.path)")
+                try ctx.expect(try existingItem("  ~/  ").path.hasPrefix(UserHome.path), "spaces around a path")
                 for id in ["apps.openFile", "apps.openFolder"] {
                     for argument in [nil, "", "~/Gooey Wheel self-test \(UUID().uuidString).txt"] {
                         var message = ""
@@ -341,9 +392,49 @@ enum AppActions {
                             message = why
                         }
                         try ctx.expect(!message.isEmpty, "\(id) with \(argument ?? "nil") should fail")
-                        if let argument, !argument.isEmpty { try ctx.expect(message.contains(argument), "message \(message)") }
+                        if let argument, !argument.isEmpty { try ctx.expect(message.contains((argument as NSString).lastPathComponent), "message \(message)") }
                     }
                 }
+            },
+            SelfTest.Case("apps.locationArguments") { ctx in
+                let plain = ItemLocation(argument: " ~/Downloads ")
+                try ctx.expect(plain == ItemLocation(path: "~/Downloads") && plain?.argument == "~/Downloads", "a path alone → \(String(describing: plain))")
+                let marked = ItemLocation(path: "~/Notes.txt", bookmark: Data([1, 2, 3]))
+                try ctx.expect(ItemLocation(argument: marked.argument) == marked, "with a bookmark → \(marked.argument.debugDescription)")
+                try ctx.expect(ItemLocation.path(of: marked.argument) == "~/Notes.txt", "the path line")
+                try ctx.expect(ItemLocation(argument: "") == nil && ItemLocation(argument: "\nAQID") == nil, "no path")
+                try ctx.expect(UserHome.expand("~/Desktop") == UserHome.path + "/Desktop" && UserHome.abbreviate(UserHome.path + "/Desktop") == "~/Desktop", "~")
+                try ctx.expect(UserHome.expand("/tmp/~") == "/tmp/~" && UserHome.abbreviate("/Users") == "/Users", "paths outside home")
+                ctx.note("home \(UserHome.path)")
+                #if APPSTORE
+                // A file the app may write, bookmarked as a chosen file would be.
+                let file = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("Gooey Wheel self-test \(UUID().uuidString).txt")
+                try Data("x".utf8).write(to: file)
+                defer { try? FileManager.default.removeItem(at: file) }
+                let chosen = ItemLocation(chosen: file)
+                try ctx.expect(chosen.bookmark != nil, "no security-scoped bookmark for \(file.path)")
+                guard let reached = ItemLocation(argument: chosen.argument)?.startAccess() else { throw SelfTest.Failure(message: "the bookmark didn't resolve") }
+                defer { reached.stopAccessingSecurityScopedResource() }
+                try ctx.expect(reached.standardizedFileURL.path == file.standardizedFileURL.path, "resolved to \(reached.path)")
+                #endif
+            },
+            SelfTest.Case("apps.ejectOneProbe") { ctx in
+                // Unmounts a disk image made for the check, never the user's disks:
+                // GOOEY_EJECT_PROBE names its mount point.
+                guard let path = ProcessInfo.processInfo.environment["GOOEY_EJECT_PROBE"] else {
+                    try ctx.skip("set GOOEY_EJECT_PROBE to a disk image's mount point to check ejecting")
+                }
+                let url = URL(fileURLWithPath: path)
+                let mounted = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: nil, options: []) ?? []
+                try ctx.expect(mounted.contains { $0.standardizedFileURL == url.standardizedFileURL }, "nothing is mounted at \(path)")
+                var failure: Error?
+                var finished = false
+                FileManager.default.unmountVolume(at: url, options: [.allPartitionsAndEjectDisk, .withoutUI]) { error in
+                    failure = error
+                    finished = true
+                }
+                try ctx.expect(ctx.wait(upTo: 20, until: { finished }), "no answer in 20 s")
+                try ctx.expect(failure == nil, "refused: \(failure?.localizedDescription ?? "")")
             },
             SelfTest.Case("apps.linksAreNormalized") { ctx in
                 let cases: [(String, String?)] = [
@@ -385,9 +476,20 @@ enum AppActions {
                     try ctx.expect(bundle?.bundleIdentifier != nil && bundle?.executableURL != nil, "\(url.path) isn't an app")
                     ctx.note("\(url.deletingPathExtension().lastPathComponent): \(bundle?.bundleIdentifier ?? "nil")")
                 }
+                #if APPSTORE
+                // Recorded, not sent.
+                guard let finder = NSRunningApplication.runningApplications(withBundleIdentifier: finderID).first else { try ctx.skip("Finder isn't running") }
+                try KeySender.requireTrust()
+                let tap = EventRecorder()
+                defer { tap.stop() }
+                try FinderCommand.send(KeyCombo.character("n", .maskCommand) ?? KeyCombo(kVK_ANSI_N, .maskCommand), activating: false)
+                try ctx.expect(ctx.wait(upTo: 1, until: { !tap.events.isEmpty }), "New Finder Window sent nothing")
+                try ctx.expect(tap.targets.allSatisfy { $0 == finder.processIdentifier }, "sent to \(tap.targets), not Finder")
+                #else
                 var error: NSDictionary?
                 let script = NSAppleScript(source: newFinderWindowScript)
                 try ctx.expect(script?.compileAndReturnError(&error) == true, "new window script: \(String(describing: error))")
+                #endif
             },
             SelfTest.Case("apps.finderCommandsNeedFinderInFront") { ctx in
                 let tap = EventRecorder()
@@ -457,3 +559,21 @@ enum AppActions {
         ]
     }
 }
+
+#if APPSTORE
+/// One of Finder's own commands, sent as its shortcut to Finder alone, so the keys never reach
+/// another app where they mean something else. Finder comes forward first, so the user sees
+/// what the command does, such as the question Empty Trash… asks.
+enum FinderCommand {
+    static func send(_ combo: KeyCombo, activating: Bool = true) throws {
+        try KeySender.requireTrust()
+        guard let finder = NSRunningApplication.runningApplications(withBundleIdentifier: AppActions.finderID).first else {
+            throw ActionError.unavailable("Finder isn't running")
+        }
+        if activating { AppSwitching.activate(finder) }
+        KeySender.whenModifiersReleased {
+            KeySender.post(KeySender.events(for: combo), to: finder.processIdentifier)
+        }
+    }
+}
+#endif

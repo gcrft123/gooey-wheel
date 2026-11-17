@@ -1,0 +1,80 @@
+{
+  "fill": {
+    "linear-gradient": [
+      "srgb:0.20000,0.20784,0.26275,1.00000",
+      "srgb:0.05490,0.05490,0.07451,1.00000"
+    ],
+    "orientation": {
+      "start": {
+        "x": 0.5,
+        "y": 0
+      },
+      "stop": {
+        "x": 0.5,
+        "y": 1
+      }
+    }
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "fill": {
+            "linear-gradient": [
+              "srgb:1.00000,1.00000,1.00000,1.00000",
+              "srgb:1.00000,0.77255,0.05098,1.00000"
+            ],
+            "orientation": {
+              "start": {
+                "x": 0.555,
+                "y": 0.445
+              },
+              "stop": {
+                "x": 0.6,
+                "y": 0.4
+              }
+            }
+          },
+          "glass": true,
+          "image-name": "droplet.png",
+          "name": "droplet"
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "specular": true,
+      "translucency": {
+        "enabled": true,
+        "value": 0.3
+      }
+    },
+    {
+      "layers": [
+        {
+          "fill": {
+            "solid": "srgb:1.00000,1.00000,1.00000,1.00000"
+          },
+          "glass": true,
+          "image-name": "bubbles.png",
+          "name": "bubbles"
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "specular": true,
+      "translucency": {
+        "enabled": true,
+        "value": 0.4
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "macOS"
+    ]
+  }
+}

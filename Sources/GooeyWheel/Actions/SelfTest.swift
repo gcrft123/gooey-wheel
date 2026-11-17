@@ -25,6 +25,12 @@ enum SelfTest {
             if !condition { throw Failure(message: message()) }
         }
 
+        /// The value, or a failure with `message` when there is none.
+        func expectValue<T>(_ value: T?, _ message: @autoclosure () -> String) throws -> T {
+            guard let value else { throw Failure(message: message()) }
+            return value
+        }
+
         func skip(_ reason: String) throws -> Never {
             throw Skip(reason: reason)
         }
@@ -138,11 +144,16 @@ enum SelfTest {
     }
 
     static var cases: [Case] {
-        catalogTests
+        #if APPSTORE
+        let display: [Case] = []
+        #else
+        let display = DisplayActions.tests
+        #endif
+        return catalogTests
             + EditingActions.tests
             + MediaActions.tests
             + AudioActions.tests
-            + DisplayActions.tests
+            + display
             + WindowActions.tests
             + SystemActions.tests
             + AppActions.tests
@@ -162,7 +173,12 @@ enum SelfTest {
             pattern.map { test.name.range(of: $0, options: .regularExpression) != nil } ?? true
         }
         installEditMenu()
-        print("Running \(selected.count) check(s). Accessibility: \(AXIsProcessTrusted() ? "granted" : "NOT granted")")
+        #if APPSTORE
+        let granted = "Post events: \(Permissions.canPostEvents ? "granted" : "NOT granted"), Input Monitoring: \(Permissions.canTapKeys ? "granted" : "NOT granted")"
+        #else
+        let granted = "Accessibility: \(AXIsProcessTrusted() ? "granted" : "NOT granted")"
+        #endif
+        print("Running \(selected.count) check(s). \(granted)")
         for test in selected {
             context.reset()
             let start = Date()
@@ -215,7 +231,28 @@ enum SelfTest {
         }
         editItem.submenu = edit
         main.addItem(editItem)
+        #if APPSTORE
+        // The App Store edition's window actions are these menus' shortcuts. AppKit adds Fill,
+        // Center and Move & Resize to the menu set as the Window menu.
+        let window = NSMenu(title: "Window")
+        let windowItems: [(String, Selector, String, NSEvent.ModifierFlags)] = [
+            ("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m", .command),
+            ("Close", #selector(NSWindow.performClose(_:)), "w", .command),
+            ("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.control, .command]),
+        ]
+        for (title, action, key, modifiers) in windowItems {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.keyEquivalentModifierMask = modifiers
+            window.addItem(item)
+        }
+        let windowItem = NSMenuItem()
+        windowItem.submenu = window
+        main.addItem(windowItem)
         NSApp.mainMenu = main
+        NSApp.windowsMenu = window
+        #else
+        NSApp.mainMenu = main
+        #endif
     }
 
     // MARK: Catalog
@@ -261,6 +298,21 @@ enum SelfTest {
                 for item in WheelItem.defaults.flatMap({ [$0] + ($0.children ?? []) }) {
                     if let id = item.actionID { try ctx.expect(ActionCatalog.action(id) != nil, "layout uses unknown \(id)") }
                 }
+                #if APPSTORE
+                let left = ActionCatalog.categories.flatMap(\.actions).map(\.id).filter { ActionCatalog.leftOut[$0] != nil }
+                try ctx.expect(left.isEmpty, "the catalog still lists \(left)")
+                try ctx.expect(ActionCatalog.leftOut.keys.allSatisfy { ActionBehaviors.behavior(for: $0) == nil }, "a left-out action has a behavior")
+                let dark = ActionMigration.migrate(WheelItem.action("system.appearance"))
+                try ctx.expect(dark.actionID == nil && dark.title == "Dark Mode", "Dark Mode → \(String(describing: dark.actionID)) \(dark.title)")
+                let almost = ActionMigration.migrate(WheelItem.action("window.move", argument: "almostMaximize"))
+                try ctx.expect(almost.actionID == "window.move" && almost.argument == "maximize", "Almost Maximize → \(String(describing: almost.argument))")
+                let side = ActionMigration.migrate(WheelItem.action("window.move", argument: "rightTwoThirds"))
+                try ctx.expect(side.argument == "rightTwoThirds" && side.title == "Right Two Thirds", "Right Two Thirds → \(String(describing: side.argument)) \(side.title)")
+                let dock = ActionCatalog.action("system.toggleDock")
+                try ctx.expect(dock != nil && dock?.control == nil, "Dock Hiding is a plain action")
+                let focus = ActionMigration.migrate(WheelItem.action("system.focus"))
+                try ctx.expect(focus.actionID == nil && focus.title == "Do Not Disturb", "an old id mapped to a left-out one → \(focus.title)")
+                #endif
             },
         ]
     }

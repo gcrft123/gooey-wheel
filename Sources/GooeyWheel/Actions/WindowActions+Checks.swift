@@ -1,16 +1,27 @@
 import AppKit
+import Carbon.HIToolbox
 
 extension WindowActions {
     /// A titled, resizable window of the self-test process behind the desktop picture, where
-    /// nobody sees it. The window actions reach it through Accessibility, the same way they
-    /// reach another app's window. Minimizing and full screen are counted instead of done,
+    /// nobody sees it. The window actions reach it through Accessibility, or in the App Store
+    /// edition through its menu shortcuts, the same way they reach another app's window. Minimizing and full screen are counted instead of done,
     /// since both would show on screen.
-    final class ProbeWindow: NSWindow {
+    #if APPSTORE
+    /// A panel that takes the keyboard without activating the app, so shortcuts posted to this
+    /// process reach it as they reach the front window of the app in front.
+    typealias ProbeBase = NSPanel
+    private static let probeStyle: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .nonactivatingPanel]
+    #else
+    typealias ProbeBase = NSWindow
+    private static let probeStyle: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
+    #endif
+
+    final class ProbeWindow: ProbeBase {
         private(set) var miniaturizeRequests = 0
         private(set) var fullScreenRequests = 0
 
         init(frame: CGRect) {
-            super.init(contentRect: frame, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+            super.init(contentRect: frame, styleMask: WindowActions.probeStyle, backing: .buffered, defer: false)
             isReleasedWhenClosed = false
             level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) - 1)
             collectionBehavior = [.fullScreenPrimary]
@@ -20,6 +31,8 @@ extension WindowActions {
             makeKey()
         }
 
+        override var canBecomeKey: Bool { true }
+        override var canBecomeMain: Bool { true }
         override func miniaturize(_ sender: Any?) { miniaturizeRequests += 1 }
         override func toggleFullScreen(_ sender: Any?) { fullScreenRequests += 1 }
     }
@@ -27,11 +40,21 @@ extension WindowActions {
     /// Runs `body` with a probe window in the middle of the main screen, as the focused window
     /// of this process, and an invocation that targets this process.
     private static func withProbe(_ ctx: SelfTest.Context, _ body: (ProbeWindow, ActionInvocation, CGRect) throws -> Void) throws {
-        guard AXIsProcessTrusted() else { try ctx.skip("Accessibility not granted") }
+        guard KeySender.isTrusted else { try ctx.skip("Accessibility not granted") }
         guard let screen = NSScreen.main else { try ctx.skip("no screen") }
         let visible = screen.visibleFrame
         let start = CGRect(x: (visible.midX - 300).rounded(), y: (visible.midY - 200).rounded(), width: 600, height: 400)
         let probe = ProbeWindow(frame: start)
+        #if APPSTORE
+        // The shortcuts go to this process, where the probe holds the keyboard focus.
+        KeySender.target = getpid()
+        defer {
+            KeySender.target = nil
+            probe.orderOut(nil)
+        }
+        ctx.wait(0.05)
+        try ctx.expect(NSApp.keyWindow === probe, "the key window is \(String(describing: NSApp.keyWindow)), not the probe")
+        #else
         let saved = history
         history = [:]
         defer {
@@ -39,9 +62,11 @@ extension WindowActions {
             history = saved
         }
         ctx.wait(0.05)
-        let invocation = ActionInvocation(argument: nil, frontmost: .current)
         let window = try AXWindow.focused(of: .current)
-        try ctx.expect(window.key?.window == CGWindowID(probe.windowNumber), "the focused window is the probe")
+        try ctx.expect(window.frame.map { WindowGeometry.same($0, probe.frame) } == true, "the focused window is the probe")
+        try ctx.expect(window.key == (try? AXWindow.focused(of: .current))?.key, "a second read gives the same key")
+        #endif
+        let invocation = ActionInvocation(argument: nil, frontmost: .current)
         try body(probe, invocation, visible)
     }
 
@@ -57,6 +82,187 @@ extension WindowActions {
     // MARK: Checks
 
     static var tests: [SelfTest.Case] {
+        editionTests + [
+            SelfTest.Case("desktop.switchAppsChoosesPreviousApp") { ctx in
+                let me: pid_t = 1
+                let running = [AppSwitching.App(pid: me, isRegular: false), AppSwitching.App(pid: 10), AppSwitching.App(pid: 20),
+                               AppSwitching.App(pid: 30), AppSwitching.App(pid: 40, isRegular: false), AppSwitching.App(pid: 50, isHidden: true)]
+                func previous(_ recent: [pid_t], _ windows: [pid_t], front: pid_t?) -> pid_t? {
+                    AppSwitching.previousApp(recent: recent, windowOwners: windows, frontmost: front, running: running, exclude: me)
+                }
+                try ctx.expect(previous([10, 20, 30], [30, 20, 10], front: 10) == 20, "the app active before the one in front")
+                try ctx.expect(previous([1, 10, 20], [], front: 10) == 20, "skips the wheel itself")
+                try ctx.expect(previous([10, 40, 99, 50], [], front: 10) == 50, "skips agents and apps that quit; a hidden app counts")
+                try ctx.expect(previous([10], [40, 10, 30, 20], front: 10) == 30, "falls back to the window order")
+                try ctx.expect(previous([], [], front: 10) == nil, "nothing to switch to")
+                // What it would do now, without doing it. The history here starts at this
+                // check, so this comes from the window order.
+                let live = AppSwitching.previousApp(
+                    recent: AppHistory.shared.recent, windowOwners: AppSwitching.windowOwnersFrontToBack(),
+                    frontmost: NSWorkspace.shared.frontmostApplication?.processIdentifier, running: AppSwitching.runningApps, exclude: getpid()
+                )
+                ctx.note("would switch to \(live.flatMap { NSRunningApplication(processIdentifier: $0)?.localizedName } ?? "nothing")")
+                // The bubble shows that app's icon and the hub its name.
+                let behavior = ActionBehaviors.behavior(for: "desktop.switchApps")
+                let target = live.flatMap(NSRunningApplication.init(processIdentifier:))
+                let symbol = behavior?.liveSymbol?(.current)
+                try ctx.expect(symbol == target?.bundleIdentifier.map { ItemIcon.app($0).name }, "icon \(symbol ?? "nil")")
+                try ctx.expect(behavior?.liveDetail?(.current) == target?.localizedName, "hub detail")
+                if let symbol { try ctx.expect(ItemIcon.picture(symbol) != nil, "no picture for \(symbol)") }
+                // The history follows NSWorkspace's activations, here posted only within this process.
+                guard let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first else { return }
+                let center = NSWorkspace.shared.notificationCenter
+                for app in [finder, NSRunningApplication.current] {
+                    center.post(name: NSWorkspace.didActivateApplicationNotification, object: NSWorkspace.shared,
+                                userInfo: [NSWorkspace.applicationUserInfoKey: app])
+                }
+                try ctx.expect(Array(AppHistory.shared.recent.prefix(2)) == [getpid(), finder.processIdentifier],
+                               "history after two activations → \(AppHistory.shared.recent.prefix(2))")
+            },
+            SelfTest.Case("desktop.otherAppHideAndActivate") { ctx in
+                // Hides and brings forward an app made for the check, never the user's:
+                // GOOEY_APP_PROBE names it. Bringing it forward takes the focus for a moment,
+                // then gives it back to the app that had it.
+                guard let path = ProcessInfo.processInfo.environment["GOOEY_APP_PROBE"] else {
+                    try ctx.skip("set GOOEY_APP_PROBE to an app made for the check")
+                }
+                let front = NSWorkspace.shared.frontmostApplication
+                ctx.note("\(front?.localizedName ?? "nothing") in front, this process \(NSApp.isActive ? "active" : "not active")")
+                let configuration = NSWorkspace.OpenConfiguration()
+                configuration.activates = false
+                var opened: NSRunningApplication?
+                NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: path), configuration: configuration) { app, _ in
+                    DispatchQueue.main.async { opened = app }
+                }
+                try ctx.expect(ctx.wait(upTo: 10, until: { opened?.isFinishedLaunching == true }), "didn't open")
+                let probe = try ctx.expectValue(opened, "didn't open")
+                let hidden = probe.hide() && ctx.wait(upTo: 2, until: { probe.isHidden })
+                probe.unhide()
+                ctx.wait(upTo: 2, until: { !probe.isHidden })
+                AppSwitching.activate(probe)
+                let activated = ctx.wait(upTo: 2, until: { NSWorkspace.shared.frontmostApplication == probe })
+                var returned = true
+                if let front, front != probe {
+                    AppSwitching.activate(front)
+                    returned = ctx.wait(upTo: 2, until: { NSWorkspace.shared.frontmostApplication == front })
+                }
+                ctx.note("hide \(hidden ? "works" : "refused"), activate \(activated ? "works" : "refused"), focus \(returned ? "given back" : "not given back")")
+                // The App Store edition sends ⌘H instead of hiding, which the sandbox refuses.
+                #if APPSTORE
+                try ctx.expect(activated && returned, "see the note")
+                #else
+                try ctx.expect(hidden && activated && returned, "see the note")
+                #endif
+            },
+            SelfTest.Case("desktop.hideOthersChoosesApps") { ctx in
+                let me: pid_t = 1
+                let running = [AppSwitching.App(pid: me, isRegular: false), AppSwitching.App(pid: 10), AppSwitching.App(pid: 20),
+                               AppSwitching.App(pid: 30, isHidden: true), AppSwitching.App(pid: 40, isRegular: false)]
+                let hidden = AppSwitching.appsToHide(running: running, frontmost: 10, exclude: me)
+                try ctx.expect(hidden == [20], "hides the other showing regular apps → \(hidden)")
+                let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
+                let live = AppSwitching.appsToHide(running: AppSwitching.runningApps, frontmost: front, exclude: getpid())
+                try ctx.expect(!live.contains { $0 == front || $0 == getpid() }, "never the app in front or the wheel")
+                ctx.note("would hide \(live.count) app(s)")
+            },
+            SelfTest.Case("desktop.hideApp") { ctx in
+                // Hides this process, whose only windows are behind the desktop picture.
+                try run("desktop.hideApp", ActionInvocation(argument: nil, frontmost: .current))
+                defer { NSApp.unhideWithoutActivation() }
+                try ctx.expect(ctx.wait(upTo: 1, until: { NSApp.isHidden }), "this process wasn't hidden")
+            },
+            SelfTest.Case("desktop.quitFrontChoosesApp") { ctx in
+                try ctx.expect(AppSwitching.appToQuit(frontmost: 10, exclude: 1) == 10, "quits the app in front")
+                try ctx.expect(AppSwitching.appToQuit(frontmost: 1, exclude: 1) == nil, "never the wheel")
+                do {
+                    try run("desktop.quitFront", ActionInvocation(argument: nil, frontmost: .current))
+                    throw SelfTest.Failure(message: "the wheel was asked to quit itself")
+                } catch ActionError.failed {}
+                #if APPSTORE
+                // Recorded, not sent: ⌘Q goes to the app in front and nowhere else.
+                guard let front = NSWorkspace.shared.frontmostApplication, front != .current else { try ctx.skip("no other app in front") }
+                let tap = EventRecorder()
+                defer { tap.stop() }
+                try run("desktop.quitFront", ActionInvocation(argument: nil, frontmost: front))
+                try ctx.expect(ctx.wait(upTo: 1, until: { !tap.events.isEmpty }), "sent nothing")
+                let q = Int64(KeyCombo.character("q")?.key ?? 12)
+                try ctx.expect(tap.events.contains { $0.type == .keyDown && $0.getIntegerValueField(.keyboardEventKeycode) == q && $0.flags.contains(.maskCommand) }, "no ⌘Q")
+                try ctx.expect(tap.targets.allSatisfy { $0 == front.processIdentifier }, "sent to \(tap.targets), not \(front.localizedName ?? "the app in front")")
+                #endif
+            },
+        ]
+    }
+
+    #if APPSTORE
+    private static var editionTests: [SelfTest.Case] {
+        [
+            SelfTest.Case("window.tilingShortcuts") { ctx in
+                // Recorded, not sent: they'd act on whatever window is in front.
+                try ctx.expect(WindowLayout.choices.map(\.id) == ["maximize", "center", "restore"],
+                               "layouts \(WindowLayout.choices.map(\.id))")
+                let behavior = try ctx.expectValue(ActionBehaviors.behavior(for: "window.move"), "no behavior")
+                try ctx.expect(behavior.isAvailable() == WindowTiling.isSupported, "availability")
+                guard WindowTiling.isSupported else { try ctx.skip("macOS 14 has no tiling shortcuts") }
+                try KeySender.requireTrust()
+                var sent: [(event: CGEvent, pid: pid_t?)] = []
+                KeySender.recorder = { sent.append(($0, $1)) }
+                defer { KeySender.recorder = nil }
+                let front = NSWorkspace.shared.frontmostApplication
+                for (layout, combo) in WindowTiling.keys {
+                    sent.removeAll()
+                    try behavior.run?(ActionInvocation(argument: layout, frontmost: front))
+                    try ctx.expect(ctx.wait(upTo: 1, until: { !sent.isEmpty }), "\(layout) sent nothing")
+                    try ctx.expect(sent.allSatisfy { $0.pid == front?.processIdentifier }, "\(layout) went to \(sent.map(\.pid)), not the app in front")
+                    let key = sent.first { $0.event.type == .keyDown && $0.event.getIntegerValueField(.keyboardEventKeycode) == Int64(combo.key) }?.event
+                    try ctx.expect(key?.flags.contains([.maskControl, .maskSecondaryFn]) == true, "\(layout) flags \(String(describing: key?.flags))")
+                    try ctx.expect(key?.flags.intersection([.maskShift, .maskAlternate, .maskCommand]).isEmpty == true, "\(layout) has other modifiers")
+                }
+                try ctx.expect((try? WindowTiling.move("leftHalf", in: front)) == nil, "a side layout ran")
+            },
+            SelfTest.Case("window.tilingMatchesWindowMenu") { ctx in
+                // AppKit puts Fill, Center and Return to Previous Size in every app's Window
+                // menu with the system's shortcuts, filling the menu in once it handles a key
+                // press. A panel can't be tiled, and tiling a window would mean activating
+                // this process, so this checks the shortcuts against the menu instead.
+                guard WindowTiling.isSupported else { try ctx.skip("macOS 14 has no tiling shortcuts") }
+                try KeySender.requireTrust()
+                _ = ctx.textTarget
+                KeySender.target = getpid()
+                defer { KeySender.target = nil }
+                try ActionBehaviors.behavior(for: "window.move")?.run?(.current.with(argument: "center"))
+                ctx.wait(0.3)
+                func items(_ menu: NSMenu?) -> [NSMenuItem] {
+                    (menu?.items ?? []).flatMap { [$0] + items($0.submenu) }
+                }
+                let menu = items(NSApp.windowsMenu)
+                var found: [String] = []
+                for (layout, character) in [("maximize", "f"), ("center", "c"), ("restore", "r")] {
+                    let combo = try ctx.expectValue(WindowTiling.keys.first { $0.layout == layout }?.combo, "no keys for \(layout)")
+                    try ctx.expect(combo.key == KeyCombo.character(Character(character))?.key && combo.modifiers == [.maskControl, .maskSecondaryFn], "\(layout) keys")
+                    let item = menu.first { $0.keyEquivalent == character && $0.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask) == [.function, .control] }
+                    try ctx.expect(item != nil, "no Globe-Control-\(character.uppercased()) in the Window menu: \(menu.map(\.title))")
+                    found.append(item?.title ?? "")
+                }
+                // The halves are the window server's, shown in the menu with Globe-Control.
+                let halves = menu.filter { $0.keyEquivalent.isEmpty && $0.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask) == [.function, .control] }
+                try ctx.expect(halves.count == 4, "\(halves.count) Globe-Control items without a key: \(halves.map(\.title))")
+                ctx.note((found + halves.map(\.title)).joined(separator: ", "))
+            },
+            SelfTest.Case("desktop.windowShortcuts") { ctx in
+                // Each reaches the probe through this process's menus, as it would another app's.
+                try withProbe(ctx) { probe, invocation, _ in
+                    try run("desktop.minimize", invocation)
+                    try ctx.expect(ctx.wait(upTo: 1, until: { probe.miniaturizeRequests == 1 }), "minimize requests \(probe.miniaturizeRequests)")
+                    try run("desktop.fullScreen", invocation)
+                    try ctx.expect(ctx.wait(upTo: 1, until: { probe.fullScreenRequests == 1 }), "full screen requests \(probe.fullScreenRequests)")
+                    try run("desktop.closeWindow", invocation)
+                    try ctx.expect(ctx.wait(upTo: 1, until: { !probe.isVisible }), "the window is still open")
+                }
+            },
+        ]
+    }
+    #else
+    private static var editionTests: [SelfTest.Case] {
         [
             SelfTest.Case("window.layoutMath") { ctx in
                 // A visible frame off the origin, as on a second display left of the main one.
@@ -258,67 +464,7 @@ extension WindowActions {
                     try ctx.expect(WindowGeometry.same(probe.frame, want), "→ \(describe(probe.frame)), want \(describe(want))")
                 }
             },
-            SelfTest.Case("desktop.switchAppsChoosesPreviousApp") { ctx in
-                let me: pid_t = 1
-                let running = [AppSwitching.App(pid: me, isRegular: false), AppSwitching.App(pid: 10), AppSwitching.App(pid: 20),
-                               AppSwitching.App(pid: 30), AppSwitching.App(pid: 40, isRegular: false), AppSwitching.App(pid: 50, isHidden: true)]
-                func previous(_ recent: [pid_t], _ windows: [pid_t], front: pid_t?) -> pid_t? {
-                    AppSwitching.previousApp(recent: recent, windowOwners: windows, frontmost: front, running: running, exclude: me)
-                }
-                try ctx.expect(previous([10, 20, 30], [30, 20, 10], front: 10) == 20, "the app active before the one in front")
-                try ctx.expect(previous([1, 10, 20], [], front: 10) == 20, "skips the wheel itself")
-                try ctx.expect(previous([10, 40, 99, 50], [], front: 10) == 50, "skips agents and apps that quit; a hidden app counts")
-                try ctx.expect(previous([10], [40, 10, 30, 20], front: 10) == 30, "falls back to the window order")
-                try ctx.expect(previous([], [], front: 10) == nil, "nothing to switch to")
-                // What it would do now, without doing it. The history here starts at this
-                // check, so this comes from the window order.
-                let live = AppSwitching.previousApp(
-                    recent: AppHistory.shared.recent, windowOwners: AppSwitching.windowOwnersFrontToBack(),
-                    frontmost: NSWorkspace.shared.frontmostApplication?.processIdentifier, running: AppSwitching.runningApps, exclude: getpid()
-                )
-                ctx.note("would switch to \(live.flatMap { NSRunningApplication(processIdentifier: $0)?.localizedName } ?? "nothing")")
-                // The bubble shows that app's icon and the hub its name.
-                let behavior = ActionBehaviors.behavior(for: "desktop.switchApps")
-                let target = live.flatMap(NSRunningApplication.init(processIdentifier:))
-                let symbol = behavior?.liveSymbol?(.current)
-                try ctx.expect(symbol == target?.bundleIdentifier.map { ItemIcon.app($0).name }, "icon \(symbol ?? "nil")")
-                try ctx.expect(behavior?.liveDetail?(.current) == target?.localizedName, "hub detail")
-                if let symbol { try ctx.expect(ItemIcon.picture(symbol) != nil, "no picture for \(symbol)") }
-                // The history follows NSWorkspace's activations, here posted only within this process.
-                guard let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first else { return }
-                let center = NSWorkspace.shared.notificationCenter
-                for app in [finder, NSRunningApplication.current] {
-                    center.post(name: NSWorkspace.didActivateApplicationNotification, object: NSWorkspace.shared,
-                                userInfo: [NSWorkspace.applicationUserInfoKey: app])
-                }
-                try ctx.expect(Array(AppHistory.shared.recent.prefix(2)) == [getpid(), finder.processIdentifier],
-                               "history after two activations → \(AppHistory.shared.recent.prefix(2))")
-            },
-            SelfTest.Case("desktop.hideOthersChoosesApps") { ctx in
-                let me: pid_t = 1
-                let running = [AppSwitching.App(pid: me, isRegular: false), AppSwitching.App(pid: 10), AppSwitching.App(pid: 20),
-                               AppSwitching.App(pid: 30, isHidden: true), AppSwitching.App(pid: 40, isRegular: false)]
-                let hidden = AppSwitching.appsToHide(running: running, frontmost: 10, exclude: me)
-                try ctx.expect(hidden == [20], "hides the other showing regular apps → \(hidden)")
-                let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
-                let live = AppSwitching.appsToHide(running: AppSwitching.runningApps, frontmost: front, exclude: getpid())
-                try ctx.expect(!live.contains { $0 == front || $0 == getpid() }, "never the app in front or the wheel")
-                ctx.note("would hide \(live.count) app(s)")
-            },
-            SelfTest.Case("desktop.hideApp") { ctx in
-                // Hides this process, whose only windows are behind the desktop picture.
-                try run("desktop.hideApp", ActionInvocation(argument: nil, frontmost: .current))
-                defer { NSApp.unhideWithoutActivation() }
-                try ctx.expect(ctx.wait(upTo: 1, until: { NSApp.isHidden }), "this process wasn't hidden")
-            },
-            SelfTest.Case("desktop.quitFrontChoosesApp") { ctx in
-                try ctx.expect(AppSwitching.appToQuit(frontmost: 10, exclude: 1) == 10, "quits the app in front")
-                try ctx.expect(AppSwitching.appToQuit(frontmost: 1, exclude: 1) == nil, "never the wheel")
-                do {
-                    try run("desktop.quitFront", ActionInvocation(argument: nil, frontmost: .current))
-                    throw SelfTest.Failure(message: "the wheel was asked to quit itself")
-                } catch ActionError.failed {}
-            },
         ]
     }
+    #endif
 }

@@ -18,6 +18,8 @@ Later launches open the wheel straight away. Launching with `--welcome`, or dele
 
 A new wheel has the most-used actions in the four straight directions: Mission Control up, Volume right, Screenshot down, and Previous App left. Up and left match the trackpad's swipe up for Mission Control and the usual left for back. Each diagonal introduces one kind of bubble: Media Controls (a picker), a Controls folder of toggles and Sound Output, a Windows folder of Move Window layouts, and Customize. Customize's hub reads "Or right-click" to teach the shortcut.
 
+In the [App Store edition](#app-store-edition) the Controls folder has Microphone Input and Pick Color in place of Do Not Disturb and Dark Mode.
+
 ## The menu bar item
 
 | Item | What it does |
@@ -159,6 +161,18 @@ macOS asks for some permissions the first time something needs them.
 ## Updates
 
 The app updates itself from GitHub releases through [Sparkle](https://sparkle-project.org). On the second launch it asks whether to check automatically, and if the user agrees it checks once a day. An automatic check that finds an update doesn't open a window. Instead, Check for Updates… in the menu bar item changes to "Update Available…", with the new version under it on macOS 14.4 and later. Choosing it shows the release notes and installs. Otherwise Check for Updates… checks immediately. It's dimmed while a check or download is already running. Releases are built for Apple silicon only.
+
+## App Store edition
+
+The App Store edition runs in the App Sandbox. It leaves out the actions that need private interfaces or other apps' menus, and does some others with Apple's default shortcuts; [ACTIONS.md](ACTIONS.md#app-store-edition) lists them. It has no Check for Updates… item, since the App Store installs updates, and doesn't ask for Full Disk Access or for Automation of Finder.
+
+The window actions send the app in front its own shortcuts, so they act on that app's front window. Move Window needs macOS 15 and offers Maximize, Center and Restore, through the system's tiling; hovering a layout shows no preview. The default wheel's Windows folder has those three, Minimize, and Full Screen. Empty Trash always asks in the app first.
+
+The welcome page and the menu bar item ask for Accessibility as in the direct download. What the edition asks for is permission to post input, which System Settings lists under Accessibility and which the mouse event tap and every action that sends keys need. The key combination field takes presses before macOS only with Input Monitoring, which the welcome page offers for a Logitech mouse.
+
+Open File and Open Folder take a file or folder chosen in the Open panel or dropped from Finder. Clicking the drop area or one of the preset folders opens the Open panel there; for a preset folder, Open chooses the folder itself. The path field shows the path and can't be typed in. Run Shortcut takes a shortcut's name typed into a field.
+
+The wheel is saved inside the app's container, at `~/Library/Containers/<bundle id>/Data/Library/Application Support/Gooey Wheel/wheel.json`, so the App Store edition and the direct download each have their own wheel.
 
 ## Where things are saved
 

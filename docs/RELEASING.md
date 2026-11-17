@@ -40,3 +40,27 @@ A notarytool keychain profile is needed, made with `xcrun notarytool store-crede
 ## The feed
 
 The feed URL is `https://github.com/gcrft123/gooey-wheel/releases/latest/download/appcast.xml`, set as `SUFeedURL` in the Info.plist that `scripts/build-app.sh` writes. GitHub serves release files only from a public repository, so updates stop working if the repository is made private.
+
+## The Mac App Store edition
+
+The App Store edition is built from the same source with the `APPSTORE` condition (see [ARCHITECTURE.md](ARCHITECTURE.md)). It runs in the App Sandbox, has no Sparkle, and leaves out the actions the sandbox blocks or that need private interfaces. Its listing text is in [APP_STORE.md](APP_STORE.md).
+
+```sh
+./scripts/build-mas.sh            # build/App Store/Gooey-Wheel-1.2.0.pkg
+./scripts/build-mas.sh --upload   # the same, then validates and uploads it
+./scripts/build-mas.sh --local    # a sandboxed copy to run on this Mac
+```
+
+The script builds into `.build-mas`, so it doesn't replace the Developer ID build. It refuses to continue if the binary contains the name of a private framework or function, since App Review rejects those. It then signs the app with the Apple Distribution certificate, the Mac App Store provisioning profile, and the sandbox entitlements, and wraps it in an installer package signed with the Mac Installer Distribution certificate. `--upload` validates the package and uploads it with `xcrun altool`. The build then appears in App Store Connect after processing, usually within an hour, ready to add to a version and submit for review.
+
+`--local` signs with the Apple Development certificate under the bundle id `dev.gooey.wheel.local` instead, with the same sandbox entitlements and no profile. A distribution-signed app only runs once the App Store installs it, so this copy is how to check the sandboxed app on this Mac. It has its own container and its own Accessibility and Input Monitoring grants.
+
+The version and build number follow the same rules as the Developer ID build. App Store Connect refuses a build number it already has for that version, so set `GOOEY_BUILD` to upload again from the same commit.
+
+### What you need
+
+- The Apple Distribution and Mac Installer Distribution certificates, with their private keys, in the login keychain.
+- The provisioning profile "Gooey Wheel Mac App Store" (type Mac App Store, App ID `dev.gooey.wheel`). The script reads it from `~/.appstoreconnect/Gooey_Wheel_Mac_App_Store.provisionprofile`, or `GOOEY_MAS_PROFILE`, and downloads it there when it's missing. It expires with the Apple Distribution certificate.
+- An App Store Connect API key: a Team key with Admin access. `scripts/asc.rb` and `--upload` read `GOOEY_ASC_KEY_ID`, `GOOEY_ASC_ISSUER_ID`, and `GOOEY_ASC_KEY` (the `.p8` path) from the environment or from `~/.appstoreconnect/gooey.env`.
+
+`scripts/asc.rb` calls the App Store Connect API with that key and prints the JSON response, for example `scripts/asc.rb GET /v1/certificates`. It created the certificates and the profile. When the certificates expire, make new ones the same way: create a key and a certificate signing request with `openssl`, send it to `POST /v1/certificates` with the type `DISTRIBUTION` or `MAC_INSTALLER_DISTRIBUTION`, import the certificate and key into the login keychain, then create a new profile with `POST /v1/profiles`.

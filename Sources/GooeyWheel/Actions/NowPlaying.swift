@@ -1,5 +1,8 @@
 import AppKit
 
+// Runs perl with a helper library that reads MediaRemote, which the App Sandbox and App Review don't allow.
+#if !APPSTORE
+
 /// What is playing, kept up to date in the background so the wheel can read it at once.
 ///
 /// Since macOS 15.4 MediaRemote, which knows what is playing, only answers processes signed
@@ -152,3 +155,4 @@ final class NowPlaying {
         NotificationCenter.default.post(name: ActionBehaviors.stateDidChange, object: nil)
     }
 }
+#endif

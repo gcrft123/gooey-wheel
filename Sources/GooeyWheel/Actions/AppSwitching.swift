@@ -106,8 +106,10 @@ enum AppSwitching {
     static func activate(_ app: NSRunningApplication) {
         if app.isHidden { app.unhide() }
         app.activate(options: [.activateAllWindows])
+        #if !APPSTORE
         if AXIsProcessTrusted() {
             AXUIElementSetAttributeValue(AXUIElementCreateApplication(app.processIdentifier), kAXFrontmostAttribute as CFString, kCFBooleanTrue)
         }
+        #endif
     }
 }

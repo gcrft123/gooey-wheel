@@ -1,5 +1,8 @@
 import Foundation
 
+// Private PreferencePanesSupport and window server calls, left out of the App Store edition.
+#if !APPSTORE
+
 /// macOS's scroll direction, the "Natural scrolling" switch in System Settings.
 ///
 /// The setting is `com.apple.swipescrolldirection` in the global domain, but writing it alone
@@ -49,3 +52,4 @@ enum NaturalScrolling {
         guard isOn == on else { throw ActionError.failed("Natural Scrolling didn't change") }
     }
 }
+#endif
